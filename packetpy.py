@@ -39,14 +39,14 @@ class Compiler(ast.NodeVisitor):
     def __init__(self, packet_config=None):
         self.code=[]; self.port=0; self.state={}; self.state_init=[]
         self.vars={}; self.free=list(range(MAX_REGS-1,-1,-1)); self.helpers={}
-        self.event=None; self.notes={}; self.log_labels=[]
+        self.event=None; self.notes={}; self.log_labels=[]; self.loop_ends=[]
         self.packet_config = packet_config or {"constants": {}, "fields": {}}
         self.packet_constants = {k:int(v) for k,v in self.packet_config.get("constants", {}).items() if isinstance(v,(int,bool))}
         self.packet_fields = self.packet_config.get("fields", {})
 
     def err(self,node,msg): raise CompileError(f"line {getattr(node,'lineno','?')}: {msg}")
     def emit(self,name,dst=0,src=0,aux=0,imm=0,off=0,extra=0,note=None):
-        if len(self.code)>=MAX_INSNS: raise CompileError(f"program exceeds {MAX_INSNS} VM instructions")
+        if len(self.code)>=MAX_INSNS: raise CompileError(f"program exceeds the {MAX_INSNS}-instruction limit (eBPF runs one bounded pass per packet and cannot be made larger). Shrink the loop body, lower the for/while bound, or split the work across packets with State(). The script is rejected and will not load.")
         self.code.append(I(OPS[name],dst,src,aux,imm,off,extra))
         if note: self.notes[len(self.code)-1]=note
         return len(self.code)-1
@@ -95,6 +95,8 @@ class Compiler(ast.NodeVisitor):
             if len(n.targets)!=1 or not isinstance(n.targets[0],ast.Name): self.err(n,'only simple variable assignment supported')
             name=n.targets[0].id
             if name in META or name in CONST or name in self.packet_constants: self.err(n,f'cannot assign to reserved name {name!r}')
+            if name not in self.state and isinstance(n.value,ast.Constant) and isinstance(n.value.value,(int,bool)):
+                self.emit('MOVI',dst=self.varreg(name),imm=int(n.value.value),note=f'{name} ='); return
             r=self.expr(n.value)
             if name in self.state: self.emit('STATE_ST',src=r,imm=self.state[name],note=f'{name} =')
             else:
@@ -103,16 +105,18 @@ class Compiler(ast.NodeVisitor):
             self.release(r); return
         if isinstance(n,ast.AugAssign) and isinstance(n.target,ast.Name):
             name=n.target.id
-            left=self.load_name(name); right=self.expr(n.value)
             opmap={ast.Add:'ADD',ast.Sub:'SUB',ast.BitAnd:'AND',ast.BitOr:'OR',ast.BitXor:'XOR',ast.LShift:'SHL',ast.RShift:'SHR',ast.Mult:'MUL',ast.Div:'DIV',ast.FloorDiv:'DIV',ast.Mod:'MOD'}
             opname=opmap.get(type(n.op))
             if not opname:self.err(n,'unsupported augmented operator')
-            self.emit(opname,dst=left,src=right)
-            if name in self.state:self.emit('STATE_ST',src=left,imm=self.state[name],note=f'{name} {opname.lower()}=')
+            if name in self.state:
+                left=self.load_name(name); right=self.expr(n.value)
+                self.emit(opname,dst=left,src=right); self.emit('STATE_ST',src=left,imm=self.state[name],note=f'{name} {opname.lower()}=')
+                self.release(right); self.release(left)
+            elif name in self.vars:
+                right=self.expr(n.value); self.emit(opname,dst=self.vars[name],src=right); self.release(right)
             else:
-                d=self.varreg(name)
-                if d!=left:self.emit('MOV',dst=d,src=left)
-            self.release(right); self.release(left); return
+                self.err(n,f'{name!r} used before assignment')
+            return
         if isinstance(n,ast.If):
             c=self.expr(n.test); jz=self.emit('JZ',src=c,imm=0); self.release(c)
             for s in n.body:self.compile_stmt(s)
@@ -136,10 +140,32 @@ class Compiler(ast.NodeVisitor):
             seq=list(range(start,stop,step))
             if len(seq)>32:self.err(n,'loop unroll limit is 32 iterations')
             vr=self.varreg(n.target.id)
+            self.loop_ends.append([])
             for v in seq:
                 self.emit('MOVI',dst=vr,imm=v)
                 for s in n.body:self.compile_stmt(s)
+            end=len(self.code)
+            for j in self.loop_ends.pop(): self.code[j].imm=end-j
             return
+        if isinstance(n,ast.While):
+            # Bounded while: the body is unrolled up to WHILE_MAX times, each
+            # copy guarded by a test that jumps past the rest once the condition
+            # is false. eBPF forbids unbounded loops, so this is the closest
+            # equivalent; raise if it overflows the instruction budget.
+            if n.orelse: self.err(n,'while/else is not supported')
+            WHILE_MAX=8; guards=[]; self.loop_ends.append([])
+            for _ in range(WHILE_MAX):
+                c=self.expr(n.test); gz=self.emit('JZ',src=c,imm=0); self.release(c); guards.append(gz)
+                for s in n.body:self.compile_stmt(s)
+            end=len(self.code)
+            for gz in guards: self.code[gz].imm=end-gz
+            for j in self.loop_ends.pop(): self.code[j].imm=end-j
+            return
+        if isinstance(n,ast.Break):
+            if not self.loop_ends: self.err(n,'break outside of a loop')
+            self.loop_ends[-1].append(self.emit('JMP',imm=0)); return
+        if isinstance(n,ast.Continue):
+            self.err(n,'continue is not supported')
         if isinstance(n,ast.Expr) and isinstance(n.value,ast.Call):
             call=n.value
             if isinstance(call.func,ast.Name) and call.func.id in ('accept','pass_packet'):

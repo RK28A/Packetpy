@@ -1,0 +1,14 @@
+[Unit]
+Description=PacketPy datapath (bridge + eBPF packet modifier)
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/opt/packetpy/boot.sh
+# tear the bridge down on stop so the box is not left half-configured
+ExecStop=/bin/sh -c 'ip link del br0 2>/dev/null; true'
+
+[Install]
+WantedBy=multi-user.target
