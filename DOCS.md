@@ -390,7 +390,14 @@ packetpy build  <script.ppy> [-o out]     compile to a .ppyb blob + .json
 packetpy load   <script.ppy> --pc-if eth0 --box-if eth1 [--debug] [--reset-stats]
 packetpy stats  [--json]                  print runtime packet counters
 packetpy debug  on|off                    toggle kernel trace output at runtime
+packetpy network status|backup|restore    inspect / save / restore the bridge network state
+packetpy recovery [iface ...]             emergency: detach filters, remove br0, bring interfaces up
 ```
+`network` and `recovery` do not depend on the compiler or the web agent, so they
+still work to get the box back on the network if PacketPy itself is broken. The
+boot sequence is idempotent and falls back to a plain pass-through bridge (traffic
+still flows, unmodified) if the eBPF program cannot be loaded, so a bad script or
+update never cuts the link the device sits on.
 `--config <file>` overrides the auto-detected config.
 
 Runtime counters: `seen` (matched packets), `accept`, `drop`, `modified`
@@ -400,8 +407,12 @@ Runtime counters: `seen` (matched packets), `accept`, `drop`, `modified`
 
 ## 9. API
 The control agent `packetpyd` serves the panels and a REST API on port 8080.
-Every call needs the token (`?token=…` or `X-PPY-Token` header); the token is in
-`/opt/packetpy/var/token`. Over the LAN only.
+Every API call must carry the token in the **`X-PPY-Token` header** (never the
+URL, so it is not logged by proxies or browser history); the token is in
+`/opt/packetpy/var/token` (mode 0600). Tokens are compared in constant time,
+failed attempts are rate-limited per IP, request bodies are capped (1 MB; scripts
+and configs 256 KB), and configs must be valid JSON. Bind only to a trusted LAN
+interface via `PACKETPY_HOST`. Over the LAN only.
 
 ```
 GET    /                         master panel

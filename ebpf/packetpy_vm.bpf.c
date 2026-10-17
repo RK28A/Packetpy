@@ -110,10 +110,18 @@ int packetpy_vm(struct __sk_buff *skb){
  __u8 hdr[42]; if(bpf_skb_load_bytes(skb,0,hdr,sizeof(hdr))<0)return TC_ACT_OK;
  __u16 eth=((__u16)hdr[12]<<8)|hdr[13]; if(eth!=ETH_P_IP)return TC_ACT_OK;
  __u8 ihl=(hdr[14]&0x0f)*4; if(ihl<20)return TC_ACT_OK; if(hdr[23]!=IPPROTO_UDP)return TC_ACT_OK;
+ /* Skip IPv4 fragments (MF set or non-zero fragment offset): only the first
+    fragment carries the UDP header and offsets would be meaningless. Pass them
+    through untouched. */
+ __u16 fragbits=((__u16)hdr[20]<<8)|hdr[21]; if(fragbits & 0x3fff)return TC_ACT_OK;
  __u8 ttl=hdr[22];
  __u32 uoff=14+ihl; __u8 ub[8]; if(bpf_skb_load_bytes(skb,uoff,ub,8)<0)return TC_ACT_OK;
  __u16 sport=((__u16)ub[0]<<8)|ub[1], dport=((__u16)ub[2]<<8)|ub[3]; __u16 port=(__u16)cfg(0); if(sport!=port&&dport!=port)return TC_ACT_OK;
  __u32 poff=uoff+8; __u16 ulen=((__u16)ub[4]<<8)|ub[5]; __u32 plen=ulen>=8?ulen-8:0;
+ /* Clamp the payload length to the bytes actually present, so every VM bound
+    check is against real data, whatever the UDP length header claims. */
+ if(poff>skb->len)return TC_ACT_OK;
+ __u32 avail=skb->len-poff; if(plen>avail)plen=avail;
  __u32 pcif=(__u32)cfg(1), boxif=(__u32)cfg(2); __u64 direction=0; if(skb->ifindex==pcif)direction=1; else if(skb->ifindex==boxif)direction=2;
  __u64 debug=cfg(4);
  __u32 ipsrc=((__u32)hdr[26]<<24)|((__u32)hdr[27]<<16)|((__u32)hdr[28]<<8)|hdr[29];

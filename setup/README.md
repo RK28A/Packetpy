@@ -1,8 +1,8 @@
 # Setup
 
 Pick the file for your situation. The **packet datapath only runs on Linux /
-Raspberry Pi** (it uses the kernel's eBPF/TC). Windows and macOS are for writing
-scripts and running the control panels.
+Raspberry Pi** (it uses the kernel's eBPF/TC). Windows is for writing scripts
+and running the control panels from your PC.
 
 | You are on… | Run | What it does |
 |---|---|---|

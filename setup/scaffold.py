@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """PacketPy cross-platform setup / scaffolder.
 
-Runs on Linux, Raspberry Pi OS, macOS and Windows. It creates the folder layout
+Runs on Linux, Raspberry Pi OS and Windows. It creates the folder layout
 (scripts / config / panels / var) in the right place, seeds the default files if
 missing, checks your environment, and self-tests the PyNet compiler.
 

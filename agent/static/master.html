@@ -1,5 +1,5 @@
 <title>PacketPy Master</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
 /* Layout: fixed top bar + left nav + content pane. Sober utility dashboard. */
 :root{
@@ -227,12 +227,14 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
   }
 
   // ---------- API ----------
-  function q(p){return p+(p.indexOf('?')<0?'?':'&')+'token='+encodeURIComponent(TOKEN);}
+  // The token travels in the X-PPY-Token header, never the URL.
+  function withAuth(opts){opts=opts||{};opts.headers=Object.assign({},opts.headers,{'X-PPY-Token':TOKEN});return opts;}
   async function api(path,opts){
     if(MODE==='demo') return demo(path,opts);
     try{
-      var r=await fetch(q('/api'+path),opts||{});
+      var r=await fetch('/api'+path,withAuth(opts));
       if(r.status===401){ MODE='needtoken'; setConn(); document.getElementById('tok').classList.remove('hidden'); return {error:'token'}; }
+      if(r.status===429){ return {error:'rate limited — wait a minute'}; }
       return await r.json();
     }catch(e){ MODE='demo'; setConn(); return demo(path,opts); }
   }
@@ -330,7 +332,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     var left=h('div','card'); left.innerHTML='<div class="row" style="margin-bottom:8px"><b>Scripts</b><span class="spacer"></span><button class="btn sm" id="newScript">New</button></div>';
     var list=h('div','list');
     (idx.scripts||[]).forEach(function(s){
-      var it=h('div','item'); it.innerHTML=(s.active?'<span class="act"></span>':'')+'<span class="mono">'+s.name+'</span><span class="meta">'+(s.ok?('UDP/'+(s.port||'?')+' · '+(s.instructions||0)+'i'):'error')+'</span>';
+      var it=h('div','item'); var nm=s.label||s.name; it.innerHTML=(s.active?'<span class="act"></span>':'')+'<span>'+nm+'</span><span class="meta">'+(s.ok?('UDP/'+(s.port||'?')+' · '+(s.instructions||0)+'i'):'error')+'</span>';
       it.onclick=function(){openScript(s.path,it,list);}; list.appendChild(it);
     });
     if(!(idx.scripts||[]).length)list.appendChild(h('div','empty','No scripts yet.'));
@@ -413,7 +415,8 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     w.innerHTML='<div class="modal card">'+
       '<h3 style="font-size:16px;display:flex;align-items:center;gap:7px">New system '+infoBtn('newsys')+'</h3>'+
       '<div class="sub" style="margin:0">Creates a config, a script and a panel, all linked together.</div>'+
-      '<label class="fld"><span class="lblrow">Script name</span><input id="nsName" placeholder="my_script.ppy"></label>'+
+      '<label class="fld"><span class="lblrow">Display name '+infoBtn('config')+'</span><input id="nsDisp" placeholder="shown in the panels"></label>'+
+      '<label class="fld"><span class="lblrow">Script file name</span><input id="nsName" placeholder="my_script.ppy"></label>'+
       '<label class="fld"><span class="lblrow">UDP port '+infoBtn('port')+'</span><input id="nsPort" type="number" value="12345" min="1" max="65535"></label>'+
       '<label class="fld"><span class="lblrow">Panel '+infoBtn('panel')+'</span><input id="nsPanel" placeholder="(defaults to the script name)"></label>'+
       '<div class="out hidden" id="nsOut"></div>'+
@@ -429,7 +432,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     w.querySelector('#nsCreate').onclick=async function(){
       var name=nameEl.value.trim(); var out=w.querySelector('#nsOut');
       if(!name){out.classList.remove('hidden');out.className='out err';out.textContent='Enter a script name.';return;}
-      var body={script:name, port:parseInt(w.querySelector('#nsPort').value,10)||12345, panel:panelEl.value.trim()||null};
+      var body={script:name, port:parseInt(w.querySelector('#nsPort').value,10)||12345, panel:panelEl.value.trim()||null, display_name:w.querySelector('#nsDisp').value.trim()||null};
       var r=await api('/system/new',{method:'POST',body:JSON.stringify(body)});
       if(r&&r.error){out.classList.remove('hidden');out.className='out err';out.textContent=r.error;return;}
       close();
@@ -452,7 +455,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
       var r=await fetch('/api/health');
       if(r.ok){
         // reachable; verify token works
-        var hr=await fetch(q('/api/active'));
+        var hr=await fetch('/api/active',withAuth());
         if(hr.status===401){MODE='needtoken';document.getElementById('tok').classList.remove('hidden');}
         else MODE='connected';
       } else MODE='demo';

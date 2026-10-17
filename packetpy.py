@@ -435,20 +435,28 @@ def cmd_build(a):
 def cmd_load(a):
     c,blob,meta=compile_file(a.script,a.config)
     prog=a.prog_map; state=a.state_map; config=a.config_map; stats=a.stats_map
-    zero=bytes(16)
-    for idx in range(MAX_INSNS):
-        val=blob[idx*16:(idx+1)*16] if idx < len(c.code) else zero
-        map_update(prog,struct.pack('<I',idx),val)
-    for name,idx in c.state.items(): map_update(state,struct.pack('<I',idx),struct.pack('<Q',c.state_init[idx]))
     def ifindex(name):
         p=Path(f'/sys/class/net/{name}/ifindex')
         if not p.exists(): raise CompileError(f'interface {name!r} not found')
         return int(p.read_text())
     pcidx=ifindex(a.pc_if); boxidx=ifindex(a.box_if)
-    vals=[c.port,pcidx,boxidx,len(c.code),1 if a.debug else 0]
-    for idx,v in enumerate(vals): map_update(config,struct.pack('<I',idx),struct.pack('<Q',v))
+    # Consistent hot swap: drop the instruction count to 0 FIRST so the running
+    # program executes nothing (every packet just passes through) while we rewrite
+    # the program map, then restore the real count LAST. A packet in flight thus
+    # sees either the whole old program, a clean pass-through, or the whole new
+    # program -- never a mix of two versions.
+    map_update(config,struct.pack('<I',3),struct.pack('<Q',0))
+    zero=bytes(16)
+    for idx in range(MAX_INSNS):
+        val=blob[idx*16:(idx+1)*16] if idx < len(c.code) else zero
+        map_update(prog,struct.pack('<I',idx),val)
+    for name,idx in c.state.items(): map_update(state,struct.pack('<I',idx),struct.pack('<Q',c.state_init[idx]))
+    # config[0]=port,1=pc,2=box,4=debug set before count, then count last
+    for idx,v in [(0,c.port),(1,pcidx),(2,boxidx),(4,1 if a.debug else 0)]:
+        map_update(config,struct.pack('<I',idx),struct.pack('<Q',v))
     if a.reset_stats and stats and Path(stats).exists():
         map_update(stats,struct.pack('<I',0),bytes(16*8))
+    map_update(config,struct.pack('<I',3),struct.pack('<Q',len(c.code)))  # activate new program atomically
     print(f'loaded {len(c.code)} instructions, UDP/{c.port}, {a.pc_if}={pcidx}, {a.box_if}={boxidx}, debug={"on" if a.debug else "off"}')
 
 def cmd_check(a):
@@ -477,6 +485,70 @@ def cmd_debug(a):
     map_update(config,struct.pack('<I',4),struct.pack('<Q',val))
     print(f'debug {a.state}. Trace output: sudo cat /sys/kernel/debug/tracing/trace_pipe')
 
+# ------------------------------------------------------------------ network recovery
+# These commands do NOT depend on the compiler or the web agent, so they still
+# work to get the box back on the network if PacketPy itself is broken.
+BK_PATH = '/opt/packetpy/var/net-backup.json'
+
+def _ifaces_of_bridge():
+    out=[]
+    for p in Path('/sys/class/net').glob('*'):
+        m=p/'master'
+        try:
+            if m.exists() and m.resolve().name=='br0': out.append(p.name)
+        except Exception: pass
+    return out
+
+def cmd_network(a):
+    if a.action=='status':
+        has_br = Path('/sys/class/net/br0').exists()
+        print(f'bridge br0: {"present" if has_br else "absent"}')
+        if has_br: print('  members:', ', '.join(_ifaces_of_bridge()) or '(none)')
+        for dev in ([ 'br0' ] if has_br else []) + _ifaces_of_bridge():
+            p=run(['tc','filter','show','dev',dev,'ingress'],check=False,capture=True)
+            if (p.stdout or '').strip(): print(f'  tc {dev} ingress: packetpy filter attached')
+        p=run(['ip','-br','addr'],check=False,capture=True); print((p.stdout or '').rstrip())
+    elif a.action=='backup':
+        Path(BK_PATH).parent.mkdir(parents=True,exist_ok=True)
+        data={'addr':_ipj(['ip','-j','addr']),'route':_ipj(['ip','-j','route'])}
+        Path(BK_PATH).write_text(json.dumps(data))
+        print(f'network state saved to {BK_PATH}')
+    elif a.action=='restore':
+        if not Path(BK_PATH).exists(): print('no backup found',file=sys.stderr); sys.exit(1)
+        _recover(remove_bridge=True)
+        data=json.loads(Path(BK_PATH).read_text())
+        for ent in data.get('addr',[]):
+            dev=ent.get('ifname')
+            for ai in ent.get('addr_info',[]):
+                if ai.get('family')=='inet':
+                    run(['ip','addr','add',f"{ai['local']}/{ai['prefixlen']}",'dev',dev],check=False)
+            run(['ip','link','set',dev,'up'],check=False)
+        print('restored saved addresses (routes may need DHCP/renewal)')
+
+def _ipj(cmd):
+    p=run(cmd,check=False,capture=True)
+    try: return json.loads(p.stdout or '[]')
+    except Exception: return []
+
+def _recover(remove_bridge=True):
+    """Detach packetpy TC filters and (optionally) remove br0, bringing the
+    physical interfaces back up. Best-effort; errors are ignored."""
+    for dev in _ifaces_of_bridge():
+        run(['tc','filter','del','dev',dev,'ingress'],check=False)
+    if remove_bridge:
+        members=_ifaces_of_bridge()
+        run(['ip','link','del','br0'],check=False)
+        for dev in members: run(['ip','link','set',dev,'up'],check=False)
+
+def cmd_recovery(a):
+    print('PacketPy recovery: detaching filters, removing br0, bringing interfaces up…')
+    _recover(remove_bridge=True)
+    # try DHCP on former bridge members so the box comes back on the network
+    for dev in (a.ifaces or []):
+        run(['ip','link','set',dev,'up'],check=False)
+        run(['dhclient','-1',dev],check=False)
+    print('done. Check `ip -br addr`. If you have a backup: packetpy network restore')
+
 def main():
     p=argparse.ArgumentParser(prog='packetpy'); sp=p.add_subparsers(dest='cmd',required=True)
     PROG='/sys/fs/bpf/packetpy/maps/ppy_program'; STATE='/sys/fs/bpf/packetpy/maps/ppy_state'
@@ -489,6 +561,8 @@ def main():
     q.add_argument('--prog-map',default=PROG);q.add_argument('--state-map',default=STATE);q.add_argument('--config-map',default=CONFIG);q.add_argument('--stats-map',default=STATS);q.set_defaults(fn=cmd_load)
     q=sp.add_parser('stats',help='print runtime packet counters');q.add_argument('--stats-map',default=STATS);q.add_argument('--json',action='store_true');q.set_defaults(fn=cmd_stats)
     q=sp.add_parser('debug',help='toggle kernel trace output at runtime');q.add_argument('state',choices=['on','off']);q.add_argument('--config-map',default=CONFIG);q.set_defaults(fn=cmd_debug)
+    q=sp.add_parser('network',help='inspect/backup/restore the bridge network state');q.add_argument('action',choices=['status','backup','restore']);q.set_defaults(fn=cmd_network)
+    q=sp.add_parser('recovery',help='emergency: detach filters, remove br0, bring interfaces back up');q.add_argument('ifaces',nargs='*',help='interfaces to DHCP after recovery');q.set_defaults(fn=cmd_recovery)
     a=p.parse_args()
     try:a.fn(a)
     except CompileError as e: print('compile error:',e,file=sys.stderr);sys.exit(2)
