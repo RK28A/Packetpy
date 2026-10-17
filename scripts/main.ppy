@@ -1,0 +1,19 @@
+# PacketPy generic packet modifier
+
+packets = State(0)
+
+@udp(port=12345)
+def packet():
+    packets += 1
+
+    # Named fields are relative to this byte offset.
+    base = 0
+
+    # Example once you add fields to config/fields.json:
+    #
+    # value = read_field("header.value", base)
+    # new   = clamp(value + 1, 0, 1000) if direction == PC_TO_BOX else value
+    # log("value", value)
+    # write_field("header.value", base, new)
+
+    accept()

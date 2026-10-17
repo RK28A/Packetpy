@@ -1,0 +1,17 @@
+{
+  "name": "Packet field configuration",
+  "version": 1,
+  "transport": "UDP",
+  "default_udp_port": 12345,
+  "constants": {
+    "TARGET_PORT": 12345,
+    "DIRECTION_A_TO_B": 1,
+    "DIRECTION_B_TO_A": 2
+  },
+  "fields": {},
+  "notes": [
+    "Add named packet fields under fields.",
+    "Supported kinds: bits, u8, u16le, u16be.",
+    "Use fields.example.json as a syntax reference."
+  ]
+}

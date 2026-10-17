@@ -1,0 +1,34 @@
+{
+  "name": "Packet field syntax example",
+  "version": 1,
+  "transport": "UDP",
+  "default_udp_port": 12345,
+  "constants": {
+    "TARGET_PORT": 12345,
+    "TYPE_EXAMPLE": 1,
+    "FLAG_ENABLED": 1
+  },
+  "fields": {
+    "header.type": {
+      "kind": "u8",
+      "offset": 0,
+      "description": "One-byte field at base+0"
+    },
+    "header.sequence": {
+      "kind": "u16le",
+      "offset": 1,
+      "description": "16-bit little-endian field at base+1"
+    },
+    "header.flags": {
+      "kind": "bits",
+      "offset": 24,
+      "width": 4,
+      "description": "4-bit field starting at bit 24 relative to base"
+    },
+    "header.value": {
+      "kind": "u16be",
+      "offset": 4,
+      "description": "16-bit big-endian field at base+4"
+    }
+  }
+}
