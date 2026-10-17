@@ -1,6 +1,17 @@
-# PacketPy v0.3 — Generic Packet Modifier
+# PacketPy v0.4 — Generic Packet Modifier
 
 PacketPy is a generic transparent packet-modification framework built around a Linux bridge, TC/eBPF and a small script language. It contains no application-specific offsets, message IDs or assumptions: you describe the packet fields you care about and write a short script that reads and rewrites them in flight.
+
+**Full documentation: [DOCS.md](DOCS.md)** — language reference, config, panels, how they interconnect, the packet-targeting model, loops/limits, CLI and API.
+
+## What changed in v0.4
+
+- **Control agent (`packetpyd`)** — a stdlib HTTP server on the device serving two web UIs over the LAN and a REST API (see `agent/`, `DOCS.md` §9).
+- **Master panel** — device health + live packet stats, a file browser for scripts/configs, a Systems table (config ↔ script ↔ panel), logs, panel management, remote reboot, and a **+ New system** button that creates a config + script + panel wired together in one step.
+- **Script panels** — named groups of scripts (`panels/<name>/`) each with their own page: categories + Start/Stop/Reload per script.
+- **Autostart** — systemd units bring up the bridge, compile+load at boot, and run the agent; the active script starts on power-up.
+- **Logs** — system / packet / crash logs under `var/logs/`, auto-pruned after 3 weeks.
+- **Language** — added bounded `while` and `break` (eBPF stays single-pass per packet; see `DOCS.md` §7), plus register/instruction optimizations.
 
 ## What changed in v0.3
 

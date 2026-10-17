@@ -1,0 +1,8 @@
+{
+  "name": "example",
+  "title": "Example panel",
+  "categories": [
+    {"id": "general", "label": "General"},
+    {"id": "testing", "label": "Testing"}
+  ]
+}

@@ -1,0 +1,5 @@
+var/
+*.ppyb
+*.ppyb.json
+ebpf/*.o
+__pycache__/

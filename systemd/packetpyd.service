@@ -1,0 +1,16 @@
+[Unit]
+Description=PacketPy control agent (web panels + REST API)
+After=packetpy.service network.target
+Wants=packetpy.service
+
+[Service]
+Type=simple
+Environment=PACKETPY_PREFIX=/opt/packetpy
+Environment=PACKETPY_HOST=0.0.0.0
+Environment=PACKETPY_PORT=8080
+ExecStart=/usr/bin/python3 /opt/packetpy/agent/packetpyd.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

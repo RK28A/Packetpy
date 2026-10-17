@@ -1,0 +1,7 @@
+# Example panel script: count packets, pass everything through.
+seen = State(0)
+
+@udp(port=12345)
+def packet():
+    seen += 1
+    accept()
