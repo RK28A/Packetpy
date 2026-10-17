@@ -1,5 +1,5 @@
 <title>PacketPy Panel</title>
-<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
 /* Layout: top bar + category rail (left or top, per panel) + script cards. */
 :root{
@@ -106,10 +106,10 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
   document.getElementById('themeBtn').onclick=function(){var c=root.getAttribute('data-theme');var n=c==='dark'?'light':(c==='light'?'dark':(matchMedia('(prefers-color-scheme: dark)').matches?'light':'dark'));root.setAttribute('data-theme',n);try{localStorage.setItem('ppy-mtheme',n);}catch(e){}};
 
   var name=(location.pathname.match(/\/panel\/([A-Za-z0-9_-]+)/)||[])[1] || new URLSearchParams(location.search).get('name') || 'example';
-  function q(p){return p+(p.indexOf('?')<0?'?':'&')+'token='+encodeURIComponent(TOKEN);}
+  function withAuth(opts){opts=opts||{};opts.headers=Object.assign({},opts.headers,{'X-PPY-Token':TOKEN});return opts;}
   async function api(path,opts){
     if(DEMO)return demo(path,opts);
-    try{var r=await fetch(q('/api'+path),opts||{});if(r.status===401){DEMO=true;document.getElementById('demo').style.display='block';return demo(path,opts);}return await r.json();}
+    try{var r=await fetch('/api'+path,withAuth(opts));if(r.status===401){DEMO=true;document.getElementById('demo').style.display='block';return demo(path,opts);}return await r.json();}
     catch(e){DEMO=true;document.getElementById('demo').style.display='block';return demo(path,opts);}
   }
   var DEMOPANEL={name:name,title:name==='example'?'Example panel':(name.charAt(0).toUpperCase()+name.slice(1)),
@@ -153,8 +153,8 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
     var cards=h('div','cards');
     list.forEach(function(s){
       var c=h('div','card'+(s.active?' on':''));
-      c.innerHTML='<h3>'+s.name+(s.active?' <span class="pill on">running</span>'+infoBtn('run'):(s.ok?'':' <span class="pill err">error</span>'))+'</h3>'+
-        '<div class="meta mono">'+(s.ok?('UDP/'+(s.port||'?')+' · '+(s.instructions||0)+' instr'):(s.error||'compile error'))+'</div>'+
+      c.innerHTML='<h3>'+(s.label||s.name)+(s.active?' <span class="pill on">running</span>'+infoBtn('run'):(s.ok?'':' <span class="pill err">error</span>'))+'</h3>'+
+        '<div class="meta mono">'+s.name+' · '+(s.ok?('UDP/'+(s.port||'?')+' · '+(s.instructions||0)+' instr'):(s.error||'compile error'))+'</div>'+
         '<div class="btns"><button class="btn primary" data-a="start">Start</button><button class="btn" data-a="reload">Reload</button><button class="btn bad" data-a="stop">Stop</button></div>';
       c.querySelectorAll('button[data-a]').forEach(function(b){
         b.onclick=async function(){

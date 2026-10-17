@@ -12,7 +12,7 @@ the packet path, it only fills maps and attaches filters, so it adds no latency.
 Runs as root (needs bpftool/tc/systemctl). Pure standard library.
 """
 import http.server, socketserver, json, os, sys, time, subprocess, threading
-import urllib.parse, socket, platform, re, shutil, struct
+import urllib.parse, socket, platform, re, shutil, struct, hmac
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
@@ -54,11 +54,22 @@ def token():
     if "PACKETPY_TOKEN" in os.environ: return os.environ["PACKETPY_TOKEN"]
     try: return TOKENF.read_text().strip()
     except Exception:
-        t = os.urandom(12).hex();
-        try: TOKENF.write_text(t)
+        t = os.urandom(24).hex()  # 192-bit token
+        try:
+            TOKENF.write_text(t); os.chmod(TOKENF, 0o600)  # readable only by the owner (root)
         except Exception: pass
         return t
 TOKEN = token()
+
+# --- auth rate limiting: block an IP after too many failed token attempts ---
+_auth_fail = {}  # ip -> [timestamps]
+AUTH_WINDOW = 60; AUTH_MAX_FAILS = 10
+def auth_blocked(ip):
+    now = time.time(); fails = [t for t in _auth_fail.get(ip, []) if now - t < AUTH_WINDOW]
+    _auth_fail[ip] = fails
+    return len(fails) >= AUTH_MAX_FAILS
+def auth_record_fail(ip):
+    _auth_fail.setdefault(ip, []).append(time.time())
 
 # ------------------------------------------------------------------- logging
 def _logfile(kind): return LOGS / f"{kind}.log"
@@ -101,13 +112,56 @@ def run(cmd, timeout=20):
     p = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
     return p.returncode, p.stdout, p.stderr
 
-def safe_path(base, rel):
-    """Resolve rel under base, refusing escapes."""
-    rel = (rel or "").lstrip("/")
-    p = (base / rel).resolve()
-    if base.resolve() not in p.parents and p != base.resolve():
-        raise ValueError("path outside of allowed directory")
-    return p
+SCRIPT_RE = re.compile(r"[A-Za-z0-9_.-]{1,48}\.ppy$")
+CONFIG_RE = re.compile(r"[A-Za-z0-9_.-]{1,48}\.json$")
+PANEL_RE  = re.compile(r"[A-Za-z0-9_-]{1,40}$")
+
+def _no_symlink(target, base):
+    """Reject if any path component from base down to target is a symlink."""
+    base = base.resolve()
+    cur = base
+    rel = target.resolve() if target.exists() else target
+    try: parts = rel.relative_to(base).parts
+    except ValueError: raise ValueError("path outside allowed directory")
+    for part in parts:
+        cur = cur / part
+        if cur.is_symlink(): raise ValueError("symlinks are not allowed")
+
+def resolve_script_path(rel):
+    """Scripts may live ONLY in scripts/ or panels/<name>/scripts/. Anything else
+    (eBPF source, agent, installer, configs) is rejected. Blocks traversal and
+    symlink escapes. Returns an absolute Path under PREFIX."""
+    rel = (rel or "").replace("\\", "/").lstrip("/")
+    parts = [p for p in rel.split("/") if p not in ("", ".")]
+    if ".." in parts: raise ValueError("path traversal rejected")
+    if len(parts) == 2 and parts[0] == "scripts":
+        base = SCRIPTS; fname = parts[1]
+    elif len(parts) == 4 and parts[0] == "panels" and parts[2] == "scripts":
+        if not PANEL_RE.match(parts[1]): raise ValueError("bad panel name")
+        base = PANELS / parts[1] / "scripts"; fname = parts[3]
+    else:
+        raise ValueError("scripts are only allowed in scripts/ or panels/<name>/scripts/")
+    if not SCRIPT_RE.match(fname): raise ValueError("script name must match [A-Za-z0-9_.-].ppy")
+    target = base / fname
+    if base.resolve() != target.resolve().parent: raise ValueError("path escape")
+    _no_symlink(target, PREFIX)
+    return target
+
+def resolve_config_path(name):
+    """Configs live ONLY directly in config/ and end in .json."""
+    name = (name or "").replace("\\", "/").split("/")[-1]
+    if not CONFIG_RE.match(name): raise ValueError("config name must match [A-Za-z0-9_.-].json")
+    target = CONFIG / name
+    if CONFIG.resolve() != target.resolve().parent: raise ValueError("path escape")
+    _no_symlink(target, PREFIX)
+    return target
+
+def atomic_write(path, text):
+    """Write via a temp file + rename so a crash never leaves a half-written file."""
+    path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
 
 def machine_stats():
     out = {"hostname": socket.gethostname(), "kernel": platform.release(),
@@ -173,14 +227,27 @@ def compile_meta(path):
     except Exception as e:
         return None, None, str(e)
 
+def config_label_map():
+    """Map each linked script path -> its config's display name, so panels can
+    show scripts under the name set in the config (config.name / linked_script)."""
+    m = {}
+    for c in CONFIG.glob("*.json"):
+        try: data = json.loads(c.read_text())
+        except Exception: continue
+        ls = data.get("linked_script")
+        if ls: m[ls] = data.get("name") or c.stem
+    return m
+
 def rebuild_index():
     """Scan all scripts (top-level + inside panels) into var/index.json for fast lookup."""
     idx = []
+    labels = config_label_map()
     srcs = [(p, None) for p in SCRIPTS.glob("*.ppy")]
     for pd in PANELS.glob("*/scripts/*.ppy"):
         srcs.append((pd, pd.parent.parent.name))
     for p, panel in srcs:
-        entry = {"name": p.name, "path": str(p.relative_to(PREFIX)), "panel": panel,
+        rel = str(p.relative_to(PREFIX))
+        entry = {"name": p.name, "label": labels.get(rel) or p.stem, "path": rel, "panel": panel,
                  "mtime": int(p.stat().st_mtime), "port": None, "instructions": None,
                  "modules": 0, "ok": True, "error": None}
         meta, _dis, err = compile_meta(p)
@@ -229,9 +296,10 @@ def packet():
     accept()
 """
 
-def create_system(script_name, port, panel=None, config_name=None, link=True):
+def create_system(script_name, port, panel=None, config_name=None, link=True, display_name=None):
     """Create a config + script + panel, wired together, in one step.
-    A panel is always created (defaults to the script name)."""
+    A panel is always created (defaults to the script name). display_name is the
+    config's human name shown in the panels (defaults to the script stem)."""
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", script_name or ""): raise ValueError("bad script name")
     if not script_name.endswith(".ppy"): script_name += ".ppy"
     port = int(port)
@@ -245,7 +313,8 @@ def create_system(script_name, port, panel=None, config_name=None, link=True):
     if spath.exists(): raise ValueError("script already exists")
     spath.parent.mkdir(parents=True, exist_ok=True)
     spath.write_text(SCRIPT_TEMPLATE.format(name=script_name, port=port, config=config_name))
-    cfg = {"name": config_name[:-5], "version": 1, "transport": "UDP", "default_udp_port": port,
+    cfg = {"name": (display_name or script_name[:-4]).strip() or script_name[:-4],
+           "version": 1, "transport": "UDP", "default_udp_port": port,
            "constants": {}, "fields": {},
            "linked_script": str(spath.relative_to(PREFIX)) if link else None,
            "linked_panel": panel if link else None}
@@ -310,10 +379,21 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
     # --- plumbing
+    def _client_ip(self):
+        return self.client_address[0] if self.client_address else "?"
+
     def _auth(self):
-        q = urllib.parse.urlparse(self.path).query
-        tok = urllib.parse.parse_qs(q).get("token", [None])[0] or self.headers.get("X-PPY-Token")
-        return tok == TOKEN
+        """Token must arrive in the X-PPY-Token header (never the URL, so it is
+        not logged by proxies/history). Constant-time compare + per-IP rate limit."""
+        ip = self._client_ip()
+        if auth_blocked(ip):
+            self._send(429, {"error": "too many auth failures, try again later"}); return False
+        tok = self.headers.get("X-PPY-Token", "")
+        if hmac.compare_digest(tok, TOKEN):
+            return True
+        auth_record_fail(ip)
+        self._send(401, {"error": "bad or missing token (send it in the X-PPY-Token header)"})
+        return False
 
     def _send(self, code, body, ctype="application/json", extra=None):
         if isinstance(body, (dict, list)): body = json.dumps(body).encode()
@@ -325,8 +405,11 @@ class H(http.server.BaseHTTPRequestHandler):
             for k, v in extra.items(): self.send_header(k, v)
         self.end_headers(); self.wfile.write(body)
 
+    MAX_BODY = 1024 * 1024  # 1 MB request cap
     def _json_body(self):
         n = int(self.headers.get("Content-Length", 0) or 0)
+        if n > self.MAX_BODY:
+            self._send(413, {"error": "request too large"}); return None
         if not n: return {}
         try: return json.loads(self.rfile.read(n).decode() or "{}")
         except Exception: return {}
@@ -348,7 +431,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if path == "/api/health": return self._send(200, {"ok": True, "service": "packetpyd"})
         if not path.startswith("/api/") and path != "/events":
             return self._send(404, {"error": "not found"})
-        if not self._auth(): return self._send(401, {"error": "bad or missing token"})
+        if not self._auth(): return
 
         if path == "/events": return self._sse()
         if path == "/api/machine": return self._send(200, machine_stats())
@@ -361,7 +444,8 @@ class H(http.server.BaseHTTPRequestHandler):
         if path == "/api/index/rebuild": return self._send(200, {"scripts": rebuild_index()})
         if path == "/api/script":
             try:
-                p = safe_path(PREFIX, q.get("path", [""])[0])
+                p = resolve_script_path(q.get("path", [""])[0])
+                if not p.exists(): return self._send(404, {"error": "no such script"})
                 meta, dis, err = compile_meta(p)
                 return self._send(200, {"path": str(p.relative_to(PREFIX)), "source": p.read_text(),
                                         "meta": meta, "disasm": dis, "error": err})
@@ -370,7 +454,8 @@ class H(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"configs": [c.name for c in CONFIG.glob("*.json")]})
         if path == "/api/config":
             try:
-                p = safe_path(CONFIG, q.get("name", ["fields.json"])[0])
+                p = resolve_config_path(q.get("name", ["fields.json"])[0])
+                if not p.exists(): return self._send(404, {"error": "no such config"})
                 return self._send(200, {"name": p.name, "source": p.read_text()})
             except Exception as e: return self._send(400, {"error": str(e)})
         if path == "/api/systems":  return self._send(200, {"systems": self._systems()})
@@ -380,8 +465,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 name = q.get("name", [""])[0]; d = panel_dir(name)
                 meta = json.loads((d / "panel.json").read_text())
                 meta["name"] = name
-                assign = meta.get("assign", {})
-                meta["scripts"] = [self._script_brief(sp, name, assign) for sp in sorted((d/"scripts").glob("*.ppy"))]
+                assign = meta.get("assign", {}); labels = config_label_map()
+                meta["scripts"] = [self._script_brief(sp, name, assign, labels) for sp in sorted((d/"scripts").glob("*.ppy"))]
                 return self._send(200, meta)
             except Exception as e: return self._send(400, {"error": str(e)})
         if path == "/api/logs":
@@ -392,22 +477,28 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path); path = u.path; q = urllib.parse.parse_qs(u.query)
-        if not self._auth(): return self._send(401, {"error": "bad or missing token"})
+        if not self._auth(): return
         b = self._json_body()
+        if b is None: return
         try:
             if path == "/api/script":
-                p = safe_path(SCRIPTS, b.get("path", "")) if "/" not in b.get("path","") else safe_path(PREFIX, b["path"])
-                p.parent.mkdir(parents=True, exist_ok=True); p.write_text(b.get("source", ""))
-                log("system", f"saved script {p.name}"); rebuild_index()
+                if len(b.get("source", "")) > 256*1024: return self._send(413, {"error": "script too large"})
+                p = resolve_script_path(b.get("path", ""))
+                atomic_write(p, b.get("source", ""))
+                log("system", f"saved script {p.relative_to(PREFIX)}"); rebuild_index()
                 return self._send(200, {"ok": True})
             if path == "/api/config":
-                p = safe_path(CONFIG, b.get("name", "fields.json")); p.write_text(b.get("source", ""))
+                src = b.get("source", "")
+                if len(src) > 256*1024: return self._send(413, {"error": "config too large"})
+                try: json.loads(src)  # reject invalid JSON before writing
+                except Exception as e: return self._send(400, {"error": f"invalid JSON: {e}"})
+                p = resolve_config_path(b.get("name", "fields.json")); atomic_write(p, src)
                 log("system", f"saved config {p.name}"); return self._send(200, {"ok": True})
             if path == "/api/check":
-                p = safe_path(PREFIX, b.get("path", "")); meta, dis, err = compile_meta(p)
+                p = resolve_script_path(b.get("path", "")); meta, dis, err = compile_meta(p)
                 return self._send(200, {"meta": meta, "disasm": dis, "error": err})
             if path == "/api/load":
-                p = safe_path(PREFIX, b.get("path", ""))
+                p = resolve_script_path(b.get("path", ""))
                 ok, msg = do_load(p, debug=bool(b.get("debug")), reset=bool(b.get("reset")))
                 return self._send(200 if ok else 500, {"ok": ok, "message": msg})
             if path == "/api/stop":
@@ -420,14 +511,14 @@ class H(http.server.BaseHTTPRequestHandler):
             if path == "/api/system/new":
                 return self._send(200, create_system(b.get("script",""), b.get("port",12345),
                                                      b.get("panel") or None, b.get("config") or None,
-                                                     bool(b.get("link", True))))
+                                                     bool(b.get("link", True)), b.get("display_name") or None))
             if path == "/api/panels":
                 return self._send(200, create_panel(b.get("name", ""), b.get("title")))
             if path == "/api/panel":
                 name = q.get("name", [b.get("name","")])[0]; d = panel_dir(name)
                 if not d.exists(): return self._send(404, {"error": "no such panel"})
                 meta = b.get("meta") or b
-                (d / "panel.json").write_text(json.dumps(meta, indent=2))
+                atomic_write(d / "panel.json", json.dumps(meta, indent=2))
                 log("system", f"panel customized: {name}"); return self._send(200, {"ok": True})
             if path == "/api/panel/action":
                 return self._panel_action(b)
@@ -445,11 +536,13 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         u = urllib.parse.urlparse(self.path); path = u.path; q = urllib.parse.parse_qs(u.query)
-        if not self._auth(): return self._send(401, {"error": "bad or missing token"})
+        if not self._auth(): return
         try:
             if path == "/api/script":
-                p = safe_path(PREFIX, q.get("path", [""])[0]); p.unlink(); rebuild_index()
-                log("system", f"deleted script {p.name}"); return self._send(200, {"ok": True})
+                p = resolve_script_path(q.get("path", [""])[0])
+                if not p.exists(): return self._send(404, {"error": "no such script"})
+                p.unlink(); rebuild_index()
+                log("system", f"deleted script {p.relative_to(PREFIX)}"); return self._send(200, {"ok": True})
             if path == "/api/panels":
                 d = panel_dir(q.get("name", [""])[0]); shutil.rmtree(d)
                 log("system", f"deleted panel {d.name}"); return self._send(200, {"ok": True})
@@ -457,11 +550,12 @@ class H(http.server.BaseHTTPRequestHandler):
         except Exception as e: return self._send(400, {"error": str(e)})
 
     # --- derived
-    def _script_brief(self, p, panel, assign=None):
+    def _script_brief(self, p, panel, assign=None, labels=None):
         meta, _d, err = compile_meta(p)
-        active = STATE.get("active") == str(p.relative_to(PREFIX))
+        rel = str(p.relative_to(PREFIX))
+        active = STATE.get("active") == rel
         cat = (assign or {}).get(p.name, "general")
-        return {"name": p.name, "path": str(p.relative_to(PREFIX)), "panel": panel,
+        return {"name": p.name, "label": (labels or {}).get(rel) or p.stem, "path": rel, "panel": panel,
                 "port": meta.get("port") if meta else None,
                 "instructions": meta.get("instructions") if meta else None,
                 "ok": err is None, "error": err, "active": active, "category": cat}
@@ -479,7 +573,7 @@ class H(http.server.BaseHTTPRequestHandler):
         return rows
 
     def _panel_action(self, b):
-        action = b.get("action"); p = safe_path(PREFIX, b.get("path", ""))
+        action = b.get("action"); p = resolve_script_path(b.get("path", ""))
         log("system", f"panel action: {action} {b.get('path','')}")
         if action in ("start", "reload"):
             ok, msg = do_load(p, debug=STATE.get("debug")); return self._send(200 if ok else 500, {"ok": ok, "message": msg})

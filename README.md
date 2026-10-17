@@ -13,7 +13,7 @@ git clone https://github.com/RK28A/Packetpy.git
 cd Packetpy
 sudo ./setup/raspberry.sh          # asks which interfaces, installs everything
 ```
-Then open **http://packetpy.local:8080** from any PC on the network and paste the API token the installer printed. On Windows/macOS, run `python3 setup/scaffold.py` to set up the editing side (the packet datapath itself runs only on the Pi/Linux).
+Then open **http://packetpy.local:8080** from any PC on the network and paste the API token the installer printed. On Windows, run `python3 setup/scaffold.py` to set up the editing side (the packet datapath itself runs only on the Pi/Linux).
 
 ## Recommended hardware
 
@@ -27,22 +27,7 @@ A transparent bridge needs **two** Ethernet ports, so every build is a Pi + one 
 
 Plus: A2 microSD, official power supply, two short Cat6 cables. Full buying notes in [GETTING_STARTED.md](GETTING_STARTED.md).
 
-## What changed in v0.4
-
-- **Control agent (`packetpyd`)** — a stdlib HTTP server on the device serving two web UIs over the LAN and a REST API (see `agent/`, `DOCS.md` §9).
-- **Master panel** — device health + live packet stats, a file browser for scripts/configs, a Systems table (config ↔ script ↔ panel), logs, panel management, remote reboot, and a **+ New system** button that creates a config + script + panel wired together in one step.
-- **Script panels** — named groups of scripts (`panels/<name>/`) each with their own page: categories + Start/Stop/Reload per script.
-- **Autostart** — systemd units bring up the bridge, compile+load at boot, and run the agent; the active script starts on power-up.
-- **Logs** — system / packet / crash logs under `var/logs/`, auto-pruned after 3 weeks.
-- **Language** — added bounded `while` and `break` (eBPF stays single-pass per packet; see `DOCS.md` §7), plus register/instruction optimizations.
-
-## What changed in v0.3
-
-- **Fixed:** the eBPF program now actually loads. The v0.2 VM advertised 128 instructions but was rejected by the kernel verifier (instruction-budget blow-up); the limit is now a verifier-safe `64`.
-- **Fixed:** `packetpy check/build/load` crashed with a `NameError` (`proto` undefined). Compilation works now.
-- **Fixed:** `install.sh` referenced a non-existent `scripts/example.ppy`.
-- **New debug:** runtime packet counters (`packetpy stats`), a `--debug` flag and `packetpy debug on|off` for kernel `trace_pipe` output, and a `log("label", value)` statement.
-- **New language:** `//` and `%` (integer div/mod), ternary `a if cond else b`, `clamp(x, lo, hi)`, `rand()`, `now()`, `ip.ttl`, annotated disassembly, and a `packetpy disasm` command.
+Release history is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Layout
 
