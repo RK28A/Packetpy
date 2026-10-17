@@ -135,7 +135,8 @@ buttons, grouped by category.
 ---
 
 ## 3. Language
-A `.ppy` script is a restricted, Python-like language compiled to eBPF.
+The scripting language is called **PyNet**. A `.ppy` script is a restricted,
+Python-like language compiled to eBPF.
 
 ### Structure
 ```python
@@ -165,7 +166,9 @@ contain a single `return <expr>` (inlined at the call site).
 == != <  <= >  >=      comparisons  (yield 1/0)
 and  or  not           boolean
 a if cond else b       conditional (ternary)
+a < b < c              chained comparison  (== (a < b) and (b < c))
 ```
+Multiple assignment works too: `a = b = 0`.
 
 ### Control flow
 ```python
@@ -188,7 +191,8 @@ There is no unbounded `while` and no recursion — the kernel forbids them (§7)
 
 ### Built-in functions
 ```
-min(a, b)   max(a, b)   abs(x)   clamp(x, lo, hi)
+min(a, b, ...)   max(a, b, ...)   abs(x)   clamp(x, lo, hi)   # min/max take 2+ args
+swap16(x)                # swap the two bytes of a 16-bit value (endianness flip)
 rand()                   # 32-bit pseudo-random
 now()                    # monotonic time in nanoseconds
 log("label", value)      # record a trace marker; prints under --debug,
@@ -270,22 +274,40 @@ panels/<name>/
   scripts/*.ppy
 ```
 
-`panel.json`:
+`panel.json` (all customization fields):
 ```json
 {
   "name": "gmod",
   "title": "GMod traffic",
+  "description": "Scripts that touch the game's UDP traffic.",
+  "accent": "#36d1b7",
+  "layout": "rail",
   "categories": [
-    { "id": "general", "label": "General" },
-    { "id": "testing", "label": "Testing" }
-  ]
+    { "id": "general", "label": "General", "color": "#36d1b7" },
+    { "id": "testing", "label": "Testing", "color": "#c8871b" }
+  ],
+  "assign": { "speed.ppy": "general", "wip.ppy": "testing" }
 }
 ```
 
-- Open a panel at `http://<device>:8080/panel/<name>`.
-- Categories render as a left-hand rail; each script card has **Start / Reload /
-  Stop** buttons. Starting a script makes it the single active datapath program.
-- Create panels from the master panel (**Panels → Create panel**) or by hand.
+| Field | Meaning |
+|---|---|
+| `title` | Heading shown on the panel page |
+| `description` | One-line subtitle under the title |
+| `accent` | Hex accent color for this panel's UI |
+| `layout` | `"rail"` (categories on the left) or `"top"` (categories as a top bar) |
+| `categories` | List of `{id, label, color}`; the color shows as a dot on the tab |
+| `assign` | Maps each script filename to a category id |
+
+- Open a panel at `http://packetpy.local:8080/panel/<name>`.
+- Each script card has **Start / Reload / Stop** buttons. Starting a script makes
+  it the single active datapath program.
+- Edit everything above live from the panel page's **Customize** button (title,
+  description, accent, layout, add/rename/recolor categories, assign scripts) —
+  it saves `panel.json` via `POST /api/panel`. Every change is written to the
+  `system` log.
+- Create panels from the master panel (**Panels → Create panel**), with **+ New
+  system**, or by hand.
 - The master panel's **Systems** tab links each config to its script and panel.
 
 ---

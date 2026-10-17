@@ -7,11 +7,17 @@ PIN=/sys/fs/bpf/packetpy
 
 if [ "$(id -u)" -ne 0 ]; then echo 'run as root (sudo)'; exit 1; fi
 
-echo '[1/7] packages'
+echo '[1/8] packages'
 apt update
-apt install -y clang llvm libbpf-dev bpftool iproute2 python3 linux-libc-dev
+apt install -y clang llvm libbpf-dev bpftool iproute2 python3 linux-libc-dev avahi-daemon avahi-utils
 
-echo '[2/7] install files'
+# make the device reachable as packetpy.local (mDNS)
+if command -v avahi-daemon >/dev/null 2>&1; then
+  hostnamectl set-hostname packetpy 2>/dev/null || true
+  systemctl enable --now avahi-daemon 2>/dev/null || true
+fi
+
+echo '[2/8] install files'
 mkdir -p "$PREFIX" "$PREFIX/ebpf" "$PREFIX/scripts" "$PREFIX/config" "$PREFIX/panels" "$PREFIX/agent/static" "$PREFIX/var/logs"
 cp packetpy.py "$PREFIX/packetpy.py"
 cp boot.sh "$PREFIX/boot.sh"
@@ -28,7 +34,7 @@ cp -r panels/. "$PREFIX/panels/" 2>/dev/null || true
 chmod +x "$PREFIX/packetpy.py" "$PREFIX/boot.sh" "$PREFIX/agent/packetpyd.py"
 ln -sf "$PREFIX/packetpy.py" /usr/local/bin/packetpy
 
-echo '[3/7] compile eBPF'
+echo '[3/8] compile eBPF'
 ARCH=$(uname -m)
 case "$ARCH" in
   aarch64|arm64) TARGET_ARCH=arm64;;
@@ -38,7 +44,7 @@ case "$ARCH" in
 esac
 clang -O2 -g -target bpf -D__TARGET_ARCH_${TARGET_ARCH} -I/usr/include/$(uname -m)-linux-gnu -c "$PREFIX/ebpf/packetpy_vm.bpf.c" -o "$PREFIX/ebpf/packetpy_vm.bpf.o"
 
-echo '[4/7] bridge'
+echo '[4/8] bridge'
 ip link set "$PC_IF" nomaster 2>/dev/null || true
 ip link set "$BOX_IF" nomaster 2>/dev/null || true
 ip link del br0 2>/dev/null || true
@@ -52,14 +58,14 @@ ip link set "$PC_IF" up
 ip link set "$BOX_IF" up
 ip link set br0 up
 
-echo '[5/7] load + pin program/maps'
+echo '[5/8] load + pin program/maps'
 mkdir -p "$PIN/maps" "$PIN/progs"
 rm -f "$PIN/progs"/* "$PIN/maps"/* 2>/dev/null || true
 bpftool prog loadall "$PREFIX/ebpf/packetpy_vm.bpf.o" "$PIN/progs" type classifier pinmaps "$PIN/maps"
 PROG=$(find "$PIN/progs" -type f | head -n1)
 [ -n "$PROG" ] || { echo 'no pinned BPF program found'; exit 1; }
 
-echo '[6/7] attach TC ingress on both bridge ports'
+echo '[6/8] attach TC ingress on both bridge ports'
 tc qdisc replace dev "$PC_IF" clsact
 tc qdisc replace dev "$BOX_IF" clsact
 tc filter replace dev "$PC_IF" ingress pref 10 handle 1 bpf da pinned "$PROG"

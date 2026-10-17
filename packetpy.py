@@ -3,7 +3,7 @@ import argparse, ast, json, struct, subprocess, sys
 from dataclasses import dataclass
 from pathlib import Path
 
-# PacketPy bytecode v0.3
+# PyNet language compiler (PacketPy packet scripts). Bytecode v0.4
 OPS = {
     'NOP':0, 'MOVI':1, 'MOV':2, 'ADD':3, 'SUB':4, 'AND':5, 'OR':6, 'XOR':7,
     'SHL':8, 'SHR':9, 'MUL':10, 'DIV':11, 'MOD':12,
@@ -92,16 +92,19 @@ class Compiler(ast.NodeVisitor):
 
     def compile_stmt(self,n):
         if isinstance(n,ast.Assign):
-            if len(n.targets)!=1 or not isinstance(n.targets[0],ast.Name): self.err(n,'only simple variable assignment supported')
-            name=n.targets[0].id
-            if name in META or name in CONST or name in self.packet_constants: self.err(n,f'cannot assign to reserved name {name!r}')
-            if name not in self.state and isinstance(n.value,ast.Constant) and isinstance(n.value.value,(int,bool)):
-                self.emit('MOVI',dst=self.varreg(name),imm=int(n.value.value),note=f'{name} ='); return
+            if not n.targets or not all(isinstance(t,ast.Name) for t in n.targets): self.err(n,'only simple variable assignment supported')
+            names=[t.id for t in n.targets]
+            for name in names:
+                if name in META or name in CONST or name in self.packet_constants: self.err(n,f'cannot assign to reserved name {name!r}')
+            # fast path: single var = integer literal
+            if len(names)==1 and names[0] not in self.state and isinstance(n.value,ast.Constant) and isinstance(n.value.value,(int,bool)):
+                self.emit('MOVI',dst=self.varreg(names[0]),imm=int(n.value.value),note=f'{names[0]} ='); return
             r=self.expr(n.value)
-            if name in self.state: self.emit('STATE_ST',src=r,imm=self.state[name],note=f'{name} =')
-            else:
-                d=self.varreg(name)
-                if d!=r: self.emit('MOV',dst=d,src=r,note=f'{name} =')
+            for name in names:  # chained assignment: a = b = <expr>
+                if name in self.state: self.emit('STATE_ST',src=r,imm=self.state[name],note=f'{name} =')
+                else:
+                    d=self.varreg(name)
+                    if d!=r: self.emit('MOV',dst=d,src=r,note=f'{name} =')
             self.release(r); return
         if isinstance(n,ast.AugAssign) and isinstance(n.target,ast.Name):
             name=n.target.id
@@ -297,10 +300,17 @@ class Compiler(ast.NodeVisitor):
             op=opmap.get(type(n.op))
             if not op:self.err(n,'unsupported binary operator')
             self.emit(op,dst=l,src=r);self.release(r);return l
-        if isinstance(n,ast.Compare) and len(n.ops)==1 and len(n.comparators)==1:
-            l=self.expr(n.left);r=self.expr(n.comparators[0]); mp={ast.Eq:'CMPEQ',ast.NotEq:'CMPNE',ast.Lt:'CMPLT',ast.LtE:'CMPLE',ast.Gt:'CMPGT',ast.GtE:'CMPGE'};op=mp.get(type(n.ops[0]))
-            if not op:self.err(n,'unsupported comparison')
-            self.emit(op,dst=l,src=r);self.release(r);return l
+        if isinstance(n,ast.Compare):
+            mp={ast.Eq:'CMPEQ',ast.NotEq:'CMPNE',ast.Lt:'CMPLT',ast.LtE:'CMPLE',ast.Gt:'CMPGT',ast.GtE:'CMPGE'}
+            operands=[n.left]+list(n.comparators); res=None
+            for i,cop in enumerate(n.ops):  # chained compare a<b<c -> (a<b) and (b<c)
+                op=mp.get(type(cop))
+                if not op:self.err(n,'unsupported comparison')
+                l=self.expr(operands[i]); r=self.expr(operands[i+1])
+                self.emit(op,dst=l,src=r); self.release(r)
+                if res is None: res=l
+                else: self.emit('AND',dst=res,src=l); self.release(l)
+            return res
         if isinstance(n,ast.BoolOp):
             vals=n.values
             if not vals:self.err(n,'empty bool expression')
@@ -318,6 +328,11 @@ class Compiler(ast.NodeVisitor):
                 r=self.alloc();self.emit('RAND',dst=r);return r
             if isinstance(n.func,ast.Name) and n.func.id in ('now','ktime') and not n.args:
                 r=self.alloc();self.emit('TIME',dst=r);return r
+            if isinstance(n.func,ast.Name) and n.func.id=='swap16' and len(n.args)==1:
+                x=self.expr(n.args[0]); m=self.alloc();self.emit('MOVI',dst=m,imm=0xff); s=self.alloc();self.emit('MOVI',dst=s,imm=8)
+                lo=self.alloc();self.emit('MOV',dst=lo,src=x);self.emit('AND',dst=lo,src=m);self.emit('SHL',dst=lo,src=s)
+                self.emit('SHR',dst=x,src=s);self.emit('AND',dst=x,src=m);self.emit('OR',dst=lo,src=x)
+                self.release(x);self.release(m);self.release(s);return lo
             if isinstance(n.func,ast.Attribute) and isinstance(n.func.value,ast.Name) and n.func.value.id=='payload':
                 meth=n.func.attr
                 if meth in ('u8','u16le','u16be'):
@@ -329,10 +344,14 @@ class Compiler(ast.NodeVisitor):
                     off=self.expr(n.args[0]); width=self.const_int(n.args[1]); out=self.alloc()
                     if width<1 or width>16:self.err(n,'bit width must be 1..16')
                     self.emit('LOADBITS',dst=out,src=off,imm=width);self.release(off);return out
-            if isinstance(n.func,ast.Name) and n.func.id in ('min','max') and len(n.args)==2:
-                a=self.expr(n.args[0]);b=self.expr(n.args[1]); cmpop='CMPLE' if n.func.id=='min' else 'CMPGE'; c=self.alloc();self.emit('MOV',dst=c,src=a);self.emit(cmpop,dst=c,src=b)
-                out=self.alloc(); jz=self.emit('JZ',src=c,imm=0);self.emit('MOV',dst=out,src=a);jmp=self.emit('JMP',imm=0);self.code[jz].imm=len(self.code)-jz;self.emit('MOV',dst=out,src=b);self.code[jmp].imm=len(self.code)-jmp
-                self.release(a);self.release(b);self.release(c);return out
+            if isinstance(n.func,ast.Name) and n.func.id in ('min','max') and len(n.args)>=2:
+                cmpop='CMPLE' if n.func.id=='min' else 'CMPGE'
+                acc=self.expr(n.args[0])
+                for arg in n.args[1:]:  # fold left: min(a,b,c,...) / max(...)
+                    b=self.expr(arg); c=self.alloc();self.emit('MOV',dst=c,src=acc);self.emit(cmpop,dst=c,src=b)
+                    out=self.alloc(); jz=self.emit('JZ',src=c,imm=0);self.emit('MOV',dst=out,src=acc);jmp=self.emit('JMP',imm=0);self.code[jz].imm=len(self.code)-jz;self.emit('MOV',dst=out,src=b);self.code[jmp].imm=len(self.code)-jmp
+                    self.release(acc);self.release(b);self.release(c);acc=out
+                return acc
             if isinstance(n.func,ast.Name) and n.func.id=='clamp' and len(n.args)==3:
                 # clamp(x, lo, hi) == min(max(x, lo), hi)
                 x=self.expr(n.args[0]); lo=self.expr(n.args[1]); hi=self.expr(n.args[2])

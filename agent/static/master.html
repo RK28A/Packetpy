@@ -8,24 +8,25 @@
   --accent:#2a7de1; --accent-weak:#e4eefb;
   --ok:#2f9e5f; --warn:#c8871b; --bad:#d64b3a; --idle:#97a4b2;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  color-scheme:light;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color-scheme:light;
+  --shadow:0 6px 24px rgba(20,35,55,.12);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f151b; --surface:#161e27; --surface-2:#1b242e; --edge:#2a3542;
   --fg:#e6edf3; --muted:#90a0b0; --faint:#6b7988;
   --accent:#4a97ef; --accent-weak:#16304d;
   --ok:#43b870; --warn:#d99a2b; --bad:#e35d4b; --idle:#50606f;
-  color-scheme:dark;
+  --shadow:0 8px 30px rgba(0,0,0,.45); color-scheme:dark;
 }}
 :root[data-theme="dark"]{
   --bg:#0f151b; --surface:#161e27; --surface-2:#1b242e; --edge:#2a3542;
   --fg:#e6edf3; --muted:#90a0b0; --faint:#6b7988;
   --accent:#4a97ef; --accent-weak:#16304d;
   --ok:#43b870; --warn:#d99a2b; --bad:#e35d4b; --idle:#50606f;
-  color-scheme:dark;
+  --shadow:0 8px 30px rgba(0,0,0,.45); color-scheme:dark;
 }
 *{box-sizing:border-box}
+html,body{height:100%}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);line-height:1.45;font-size:14px}
 h1,h2,h3{margin:0;text-wrap:balance}
 button,input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
@@ -33,37 +34,45 @@ button{cursor:pointer}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 
 /* top bar */
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--edge);
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);border-bottom:1px solid var(--edge);
   display:flex;align-items:center;gap:12px;padding-block:10px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--surface)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:31;background:var(--surface)}
 .brand{font-weight:700;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
 .brand svg{width:20px;height:20px}
 .brand small{font-weight:500;color:var(--muted)}
 .state{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--idle)}
-.dot.on{background:var(--ok)} .dot.off{background:var(--bad)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--idle);transition:background .3s}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 22%,transparent)}
+.dot.off{background:var(--bad)}
 .spacer{margin-left:auto}
-.tbtn{background:var(--surface-2);border:1px solid var(--edge);border-radius:8px;padding:7px 11px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center}
-.tbtn:hover{border-color:var(--accent)}
+.tbtn{background:var(--surface-2);border:1px solid var(--edge);border-radius:8px;padding:7px 11px;font-size:13px;font-weight:600;display:inline-flex;gap:6px;align-items:center;transition:transform .08s,border-color .15s}
+.tbtn:hover{border-color:var(--accent)} .tbtn:active{transform:translateY(1px)}
 .tbtn.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--edge))}
+.tbtn.cta{background:var(--accent);color:#fff;border-color:transparent}
 
 /* shell */
-.shell{display:grid;grid-template-columns:184px minmax(0,1fr);gap:0;max-width:1200px;margin:0 auto;min-height:calc(100% - 52px)}
+.shell{display:grid;grid-template-columns:184px minmax(0,1fr);max-width:1200px;margin:0 auto;min-height:calc(100% - 52px)}
 .nav{border-right:1px solid var(--edge);padding:14px 10px;display:flex;flex-direction:column;gap:3px}
-.nav a{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:600;font-size:13.5px;cursor:pointer}
+.nav a{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:600;font-size:13.5px;cursor:pointer;transition:background .12s,color .12s}
 .nav a:hover{background:var(--surface-2)}
 .nav a.sel{background:var(--accent-weak);color:var(--accent)}
 .nav .navnote{margin-top:auto;font-size:11px;color:var(--faint);padding:8px 11px}
 .content{padding:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));min-width:0}
 @media(max-width:720px){.shell{grid-template-columns:1fr}.nav{flex-direction:row;overflow-x:auto;border-right:none;border-bottom:1px solid var(--edge)}.nav .navnote{display:none}}
 
-h2.tt{font-size:17px;margin-bottom:3px}
+/* content animation */
+.anim{animation:fadeUp .26s ease both}
+@keyframes fadeUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.anim,.toast,.modal{animation:none!important}}
+
+h2.tt{font-size:17px;margin-bottom:3px;display:flex;align-items:center;gap:8px}
 .sub{color:var(--muted);font-size:12.5px;margin-bottom:14px}
 .card{background:var(--surface);border:1px solid var(--edge);border-radius:12px;padding:14px}
 .grid{display:grid;gap:12px}
 .tiles{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
-.tile{background:var(--surface);border:1px solid var(--edge);border-radius:11px;padding:12px 13px;display:flex;flex-direction:column;gap:2px}
+.tile{background:var(--surface);border:1px solid var(--edge);border-radius:11px;padding:12px 13px;display:flex;flex-direction:column;gap:2px;transition:transform .12s,box-shadow .12s}
+.tile:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .tile .k{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint)}
 .tile .v{font-size:22px;font-weight:700}
 .tile .u{font-size:12px;color:var(--muted)}
@@ -72,8 +81,8 @@ h2.tt{font-size:17px;margin-bottom:3px}
 .pill{font-size:11.5px;padding:3px 9px;border-radius:999px;border:1px solid var(--edge);background:var(--surface-2);color:var(--muted)}
 .pill.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--edge))}
 .pill.off{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--edge))}
-.btn{border:1px solid var(--edge);background:var(--surface-2);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600}
-.btn:hover{border-color:var(--accent)}
+.btn{border:1px solid var(--edge);background:var(--surface-2);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:600;transition:transform .08s,border-color .15s,background .15s}
+.btn:hover{border-color:var(--accent)} .btn:active{transform:translateY(1px)}
 .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
 .btn.bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,var(--edge))}
 .btn.sm{padding:5px 9px;font-size:12px}
@@ -82,23 +91,23 @@ h2.tt{font-size:17px;margin-bottom:3px}
 .split{display:grid;grid-template-columns:240px minmax(0,1fr);gap:12px}
 @media(max-width:720px){.split{grid-template-columns:1fr}}
 .list{display:flex;flex-direction:column;gap:2px}
-.item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--fg);font-size:13px;border:1px solid transparent;cursor:pointer}
+.item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;color:var(--fg);font-size:13px;border:1px solid transparent;cursor:pointer;transition:background .12s}
 .item:hover{background:var(--surface-2)} .item.sel{background:var(--accent-weak);border-color:var(--accent)}
 .item .meta{margin-left:auto;font-size:11px;color:var(--faint)}
 .item .act{width:7px;height:7px;border-radius:50%;background:var(--ok);flex:0 0 auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--edge)}
 th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}
+th{white-space:nowrap}
 td .mono{font-size:12.5px}
 textarea{width:100%;min-height:300px;background:#0c1116;color:#cdd9e5;border:1px solid var(--edge);border-radius:8px;padding:11px;font-family:var(--mono);font-size:12.5px;line-height:1.55;resize:vertical}
-:root[data-theme="light"] textarea,:root:not([data-theme="dark"]) textarea{}
-@media (prefers-color-scheme:light){:root:not([data-theme="dark"]) textarea{background:#0c1116}}
 .editbar{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .out{font-family:var(--mono);font-size:12px;white-space:pre-wrap;background:var(--surface-2);border:1px solid var(--edge);border-radius:8px;padding:10px;max-height:220px;overflow:auto}
 .out.err{color:var(--bad)}
-.logtabs{display:flex;gap:6px;margin-bottom:10px}
+.logtabs{display:flex;gap:6px;margin-bottom:10px;align-items:center}
 .logwrap{background:#0c1116;border:1px solid var(--edge);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11.5px;line-height:1.5;max-height:420px;overflow:auto;color:#aebccb;white-space:pre-wrap;word-break:break-word}
-.panelcard{display:flex;align-items:center;gap:12px;padding:12px 13px}
+.panelcard{display:flex;align-items:center;gap:12px;padding:12px 13px;transition:transform .12s,box-shadow .12s}
+.panelcard:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
 .panelcard h3{font-size:14px} .panelcard .meta{color:var(--muted);font-size:12px}
 .empty{color:var(--faint);font-size:13px;padding:20px;text-align:center}
 .demo{background:color-mix(in srgb,var(--warn) 16%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 45%,var(--edge));
@@ -106,7 +115,35 @@ textarea{width:100%;min-height:300px;background:#0c1116;color:#cdd9e5;border:1px
 .hidden{display:none}
 input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius:7px;padding:6px 9px;font-size:12.5px;width:150px}
 .fld{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+.fld .lblrow{display:flex;align-items:center;gap:6px}
 .fld input{background:var(--surface-2);border:1px solid var(--edge);border-radius:8px;padding:8px 10px;font-size:13.5px;color:var(--fg)}
+.fld input:focus{outline:2px solid var(--accent);outline-offset:1px}
+
+/* info "i" button + popover */
+.info{width:16px;height:16px;border-radius:50%;border:1.3px solid var(--faint);color:var(--faint);background:transparent;
+  font-size:10.5px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;font-style:italic;font-family:Georgia,serif;transition:color .12s,border-color .12s}
+.info:hover{color:var(--accent);border-color:var(--accent)}
+.info-pop{position:fixed;z-index:60;max-width:280px;background:var(--surface);border:1px solid var(--edge);border-radius:10px;
+  box-shadow:var(--shadow);padding:11px 13px;font-size:12.5px;color:var(--fg);line-height:1.5;animation:fadeUp .16s ease both}
+.info-pop b{color:var(--accent)}
+
+/* modal */
+.modal-wrap{position:fixed;inset:0;background:rgba(10,18,28,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .18s ease both}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal{width:min(430px,100%);display:flex;flex-direction:column;gap:11px;animation:pop .2s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes pop{from{opacity:0;transform:scale(.94) translateY(8px)}to{opacity:1;transform:none}}
+
+/* toast (bottom-right) */
+.toast-wrap{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));
+  z-index:70;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.toast{min-width:200px;max-width:330px;background:var(--surface);border:1px solid var(--edge);border-left:3px solid var(--accent);
+  border-radius:10px;box-shadow:var(--shadow);padding:11px 13px;font-size:13px;display:flex;gap:9px;align-items:flex-start;animation:slideIn .24s cubic-bezier(.2,.9,.3,1.1) both}
+.toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--bad)} .toast.info{border-left-color:var(--accent)}
+.toast.out{animation:slideOut .22s ease forwards}
+.toast .ic{font-weight:800;color:var(--accent)} .toast.ok .ic{color:var(--ok)} .toast.err .ic{color:var(--bad)}
+.toast .tx{min-width:0;word-break:break-word}
+@keyframes slideIn{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+@keyframes slideOut{to{opacity:0;transform:translateX(26px)}}
 </style>
 
 <header class="top">
@@ -117,23 +154,10 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
   <div class="state"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></div>
   <div class="spacer"></div>
   <input class="tok hidden" id="tok" placeholder="API token" title="API token">
-  <button class="tbtn" id="newSysBtn" title="Create config + script + panel at once">+ New system</button>
+  <button class="tbtn cta" id="newSysBtn" title="Create config + script + panel at once">+ New system</button>
   <button class="tbtn" id="themeBtn" title="Theme">◐</button>
-  <button class="tbtn bad" id="rebootBtn">Reboot device</button>
+  <button class="tbtn bad" id="rebootBtn">Reboot</button>
 </header>
-
-<div id="modalWrap" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px">
-  <div class="card" style="width:min(420px,100%);display:flex;flex-direction:column;gap:11px">
-    <h3 style="font-size:16px">New system</h3>
-    <div class="sub" style="margin:0">Creates a config, a script and (optionally) a panel, all linked together.</div>
-    <label class="fld">Script name<input id="nsName" placeholder="my_script.ppy"></label>
-    <label class="fld">UDP port<input id="nsPort" type="number" value="12345" min="1" max="65535"></label>
-    <label class="fld">Panel (optional)<input id="nsPanel" placeholder="leave empty for top-level script"></label>
-    <div class="row"><label style="display:flex;gap:7px;align-items:center;font-size:13px"><input type="checkbox" id="nsLink" checked> Link config ↔ script ↔ panel</label></div>
-    <div class="out hidden" id="nsOut"></div>
-    <div class="row" style="justify-content:flex-end"><button class="btn" id="nsCancel">Cancel</button><button class="btn primary" id="nsCreate">Create</button></div>
-  </div>
-</div>
 
 <div class="shell">
   <nav class="nav" id="nav">
@@ -144,84 +168,130 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     <a data-tab="panels">Panels</a>
     <span class="navnote" id="host">—</span>
   </nav>
-  <main class="content" id="view"></main>
+  <main class="content"><div id="view" class="anim"></div></main>
 </div>
+
+<div class="toast-wrap" id="toasts"></div>
 
 <script>
 (function(){
   var root=document.documentElement, V=document.getElementById('view');
-  var DEMO=false, TOKEN="";
-  try{TOKEN=localStorage.getItem('ppy-token')||"";}catch(e){}
+  var MODE='connecting';            // 'connected' | 'needtoken' | 'demo'
+  var TOKEN=""; try{TOKEN=localStorage.getItem('ppy-token')||"";}catch(e){}
   document.getElementById('tok').value=TOKEN;
-  // theme
   try{var s=localStorage.getItem('ppy-mtheme'); if(s)root.setAttribute('data-theme',s);}catch(e){}
   document.getElementById('themeBtn').onclick=function(){
     var c=root.getAttribute('data-theme'); var n=c==='dark'?'light':(c==='light'?'dark':(matchMedia('(prefers-color-scheme: dark)').matches?'light':'dark'));
     root.setAttribute('data-theme',n); try{localStorage.setItem('ppy-mtheme',n);}catch(e){}
   };
-  document.getElementById('tok').onchange=function(e){TOKEN=e.target.value.trim();try{localStorage.setItem('ppy-token',TOKEN);}catch(_){}; refresh();};
+  document.getElementById('tok').onchange=function(e){TOKEN=e.target.value.trim();try{localStorage.setItem('ppy-token',TOKEN);}catch(_){}; boot();};
 
-  // ---- API with demo fallback ----
-  function q(p){return p+(p.indexOf('?')<0?'?':'&')+'token='+encodeURIComponent(TOKEN);}
-  async function api(path,opts){
-    if(DEMO) return demo(path,opts);
-    try{
-      var r=await fetch(q('/api'+path),opts||{});
-      if(r.status===401){document.getElementById('tok').classList.remove('hidden');throw new Error('token');}
-      return await r.json();
-    }catch(e){ if(!DEMO){DEMO=true; setConn(); } return demo(path,opts); }
+  // ---------- info definitions ----------
+  var INFO={
+    port:"<b>UDP port</b><br>The app/protocol port your script runs on. The script only runs on packets whose UDP source or destination port matches. Game servers use known ports (e.g. 27015). If this is wrong, your script never runs and 'seen' stays 0.",
+    direction:"<b>Direction</b><br>PC_TO_BOX = packets arriving on the PC-side interface; BOX_TO_PC = the other way. Use it to only rewrite one direction.",
+    seen:"<b>seen</b> — matching UDP packets that ran the script. If this climbs while the app is active, your placement and port are correct.",
+    modified:"<b>modified</b> — packets whose payload the script rewrote.",
+    drop:"<b>drop</b> — packets the script dropped with drop().",
+    error:"<b>error</b> — VM aborts (out-of-bounds read/write, bad op). Should stay 0.",
+    active:"<b>Active script</b><br>Only one script runs in the kernel at a time (one bridge, one program). Starting another replaces it; Stop detaches the datapath entirely.",
+    newsys:"<b>New system</b><br>Creates three linked pieces at once: a <b>config</b> (where the packet fields live), a <b>script</b> (the PyNet code), and a <b>panel</b> (its control page). They are wired together automatically.",
+    config:"<b>Config</b><br>Defines where each field sits in the packet payload (offset + kind) for a given UDP port. The script reads/writes fields by name from here.",
+    panel:"<b>Panel</b><br>A named group of scripts with its own page (categories + start/stop/reload). One is always created with a new system.",
+    systems:"<b>Systems</b><br>Each row links a packet config to the script and panel it belongs to, so you can see the whole chain at a glance."
+  };
+  function infoBtn(key){return '<button class="info" data-info="'+key+'" aria-label="info">i</button>';}
+  var pop=null;
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('.info');
+    if(pop){pop.remove();pop=null;}
+    if(!b)return;
+    e.stopPropagation();
+    var txt=INFO[b.dataset.info]||b.dataset.info;
+    pop=document.createElement('div'); pop.className='info-pop'; pop.innerHTML=txt; document.body.appendChild(pop);
+    var r=b.getBoundingClientRect(), pw=pop.offsetWidth, ph=pop.offsetHeight;
+    var left=Math.min(r.left, innerWidth-pw-10), top=r.bottom+8;
+    if(top+ph>innerHeight-10) top=Math.max(10,r.top-ph-8);
+    pop.style.left=Math.max(10,left)+'px'; pop.style.top=top+'px';
+  });
+
+  // ---------- toasts ----------
+  function toast(msg,kind){
+    kind=kind||'info';
+    var w=document.getElementById('toasts');
+    var el=document.createElement('div'); el.className='toast '+kind;
+    var ic=kind==='ok'?'✓':(kind==='err'?'!':'i');
+    el.innerHTML='<span class="ic">'+ic+'</span><span class="tx">'+msg+'</span>';
+    w.appendChild(el);
+    setTimeout(function(){el.classList.add('out');setTimeout(function(){el.remove();},240);},3200);
   }
 
-  // ---- demo data (used when no backend, e.g. opened as a standalone page) ----
-  var D={
-    active:"scripts/main.ppy", attached:true, debug:false, pc_if:"eth0", box_if:"eth1",
-    stats:{loaded:true,seen:18423,accept:17901,drop:402,modified:5120,error:3,trace:5120},
-    scripts:[
-      {name:"main.ppy",path:"scripts/main.ppy",port:12345,instructions:21,ok:true,panel:null},
-      {name:"throttle.ppy",path:"scripts/throttle.ppy",port:12345,instructions:34,ok:true,panel:null},
-      {name:"freeze.ppy",path:"scripts/freeze.ppy",port:27015,instructions:12,ok:false,panel:null,error:"line 7: unknown packet field 'hdr.x'"}
-    ],
-    panels:[{name:"example",title:"Example panel",script_count:1,categories:[{id:"general",label:"General"}]},
-            {name:"gmod",title:"GMod traffic",script_count:3,categories:[{id:"general",label:"General"}]}],
-    systems:[{config:"fields.json",port:12345,fields:3,linked_script:"scripts/main.ppy",linked_panel:"gmod"},
-             {config:"fields.example.json",port:12345,fields:4,linked_script:null,linked_panel:null}]
-  };
-  function demo(path,opts){
-    if(path.indexOf('/machine')===0)return Promise.resolve({hostname:"raspberrypi",kernel:"6.6.31-v8",uptime_s:82440,load:["0.14","0.09","0.05"],mem_total_kb:4000000,mem_avail_kb:3100000,mem_used_pct:22.5,cpu_pct:(8+Math.random()*12).toFixed(1),temp_c:(44+Math.random()*4).toFixed(1)});
-    if(path.indexOf('/stats')===0){D.stats.seen+=7;D.stats.accept+=6;D.stats.modified+=2;if(Math.random()<.3)D.stats.drop+=1;return Promise.resolve(D.stats);}
-    if(path.indexOf('/active')===0)return Promise.resolve({active:D.active,attached:D.attached,debug:D.debug,pc_if:D.pc_if,box_if:D.box_if});
-    if(path.indexOf('/scripts')===0)return Promise.resolve({count:D.scripts.length,scripts:D.scripts});
-    if(path.indexOf('/panels')===0)return Promise.resolve({panels:D.panels});
-    if(path.indexOf('/systems')===0)return Promise.resolve({systems:D.systems});
-    if(path.indexOf('/logs')===0)return Promise.resolve({type:"system",lines:["2026-10-17T20:11:02Z\tpacketpyd starting on 0.0.0.0:8080","2026-10-17T20:11:40Z\tloaded scripts/main.ppy debug=False","2026-10-17T20:14:07Z\tpanel created: gmod"]});
-    if(path.indexOf('/script')===0)return Promise.resolve({path:"scripts/main.ppy",source:"packets = State(0)\n\n@udp(port=12345)\ndef packet():\n    packets += 1\n    accept()\n",meta:{port:12345,instructions:6},disasm:"# UDP/12345  6/64 instructions\n000 STATE_LD ...",error:null});
-    return Promise.resolve({ok:true});
+  // ---------- API ----------
+  function q(p){return p+(p.indexOf('?')<0?'?':'&')+'token='+encodeURIComponent(TOKEN);}
+  async function api(path,opts){
+    if(MODE==='demo') return demo(path,opts);
+    try{
+      var r=await fetch(q('/api'+path),opts||{});
+      if(r.status===401){ MODE='needtoken'; setConn(); document.getElementById('tok').classList.remove('hidden'); return {error:'token'}; }
+      return await r.json();
+    }catch(e){ MODE='demo'; setConn(); return demo(path,opts); }
   }
   function setConn(){
     var d=document.getElementById('connDot'), t=document.getElementById('connText');
-    if(DEMO){d.className='dot off';t.textContent='demo (no device)';}
-    else{d.className='dot on';t.textContent='connected';}
+    if(MODE==='connected'){d.className='dot on';t.textContent='connected';}
+    else if(MODE==='needtoken'){d.className='dot off';t.textContent='enter token →';}
+    else if(MODE==='demo'){d.className='dot off';t.textContent='demo (no device)';}
+    else{d.className='dot';t.textContent='connecting…';}
   }
 
-  // ---- helpers ----
+  // ---------- demo data (standalone page, no backend) ----------
+  var D={
+    active:"scripts/main.ppy", attached:true, debug:false, pc_if:"eth0", box_if:"eth1",
+    stats:{loaded:true,seen:18423,accept:17901,drop:402,modified:5120,error:0,trace:5120},
+    scripts:[
+      {name:"main.ppy",path:"scripts/main.ppy",port:12345,instructions:21,ok:true,active:true},
+      {name:"throttle.ppy",path:"scripts/throttle.ppy",port:12345,instructions:34,ok:true},
+      {name:"freeze.ppy",path:"panels/gmod/scripts/freeze.ppy",port:27015,instructions:12,ok:false,error:"line 7: unknown packet field 'hdr.x'"}
+    ],
+    panels:[{name:"example",title:"Example panel",script_count:1,categories:[{id:"general",label:"General"}]},
+            {name:"gmod",title:"GMod traffic",script_count:3,categories:[{id:"general",label:"General"},{id:"testing",label:"Testing"}]}],
+    systems:[{config:"fields.json",port:12345,fields:3,linked_script:"scripts/main.ppy",linked_panel:"gmod"},
+             {config:"aim.json",port:27015,fields:2,linked_script:"panels/gmod/scripts/aim.ppy",linked_panel:"gmod"}]
+  };
+  function demo(path,opts){
+    if(path.indexOf('/machine')===0)return Promise.resolve({hostname:"packetpy",kernel:"6.6.31-v8",uptime_s:82440,load:["0.14","0.09","0.05"],mem_used_pct:22.5,cpu_pct:(8+Math.random()*12).toFixed(1),temp_c:(44+Math.random()*4).toFixed(1)});
+    if(path.indexOf('/stats')===0){D.stats.seen+=7;D.stats.accept+=6;D.stats.modified+=2;if(Math.random()<.3)D.stats.drop+=1;return Promise.resolve(D.stats);}
+    if(path.indexOf('/active')===0)return Promise.resolve({active:D.active,attached:D.attached,debug:D.debug,pc_if:D.pc_if,box_if:D.box_if});
+    if(path.indexOf('/scripts')===0)return Promise.resolve({count:D.scripts.length,scripts:D.scripts});
+    if(path.indexOf('/panels')===0&&(!opts||opts.method!=='POST'))return Promise.resolve({panels:D.panels});
+    if(path.indexOf('/systems')===0)return Promise.resolve({systems:D.systems});
+    if(path.indexOf('/logs')===0)return Promise.resolve({type:"system",lines:["2026-10-17T20:11:02Z\tpacketpyd starting on 0.0.0.0:8080","2026-10-17T20:11:40Z\tloaded scripts/main.ppy debug=False","2026-10-17T20:14:07Z\tnew system: aim.ppy + aim.json + panel gmod"]});
+    if(path.indexOf('/script')===0)return Promise.resolve({path:"scripts/main.ppy",source:"packets = State(0)\n\n@udp(port=12345)\ndef packet():\n    packets += 1\n    accept()\n",meta:{port:12345,instructions:6},disasm:"# UDP/12345  6/64 instructions",error:null});
+    if(path.indexOf('/system/new')===0){var b=JSON.parse((opts&&opts.body)||'{}');var nm=(b.script||'new').replace(/\.ppy$/,'');var pn=(b.panel||nm);return Promise.resolve({script:"panels/"+pn+"/scripts/"+nm+".ppy",config:nm+".json",panel:pn});}
+    return Promise.resolve({ok:true});
+  }
+
+  // ---------- helpers ----------
   function h(tag,cls,html){var e=document.createElement(tag);if(cls)e.className=cls;if(html!=null)e.innerHTML=html;return e;}
   function fmtDur(s){if(s==null)return'—';var d=Math.floor(s/86400),hh=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return (d?d+'d ':'')+hh+'h '+m+'m';}
+  function reanim(){V.classList.remove('anim');void V.offsetWidth;V.classList.add('anim');}
   var tab='overview';
   document.getElementById('nav').addEventListener('click',function(e){
     var a=e.target.closest('a[data-tab]'); if(!a)return;
     tab=a.dataset.tab; [].forEach.call(this.querySelectorAll('a'),function(x){x.classList.toggle('sel',x===a);});
     render();
   });
+  function demoBanner(){return MODE==='demo'?'<div class="demo">Demo view — not connected to a device. On the Pi, open <b>http://packetpy.local:8080</b> and enter the API token (top right).</div>':
+    (MODE==='needtoken'?'<div class="demo">Connected, but the API token is required. Paste it in the box at the top right (it is printed by the installer and stored in <b>/opt/packetpy/var/token</b>).</div>':'');}
 
-  // ---- tabs ----
   async function render(){
+    reanim();
     if(tab==='overview')return renderOverview();
     if(tab==='files')return renderFiles();
     if(tab==='systems')return renderSystems();
     if(tab==='logs')return renderLogs();
     if(tab==='panels')return renderPanels();
   }
-  function demoBanner(){return DEMO?'<div class="demo">Demo view — not connected to a device. Enter the API token (top right) when served from the Pi.</div>':'';}
 
   async function renderOverview(){
     var m=await api('/machine'), st=await api('/stats'), ac=await api('/active');
@@ -233,7 +303,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     }); V.appendChild(mt);
 
     var act=h('div','card'); act.style.marginBottom='14px';
-    act.innerHTML='<div class="row"><b>Active script</b>'+
+    act.innerHTML='<div class="row"><b>Active script</b>'+infoBtn('active')+
       (ac.active?'<span class="mono">'+ac.active+'</span>':'<span class="pill">none</span>')+
       '<span class="pill '+(ac.attached?'on':'off')+'">'+(ac.attached?'attached':'detached')+'</span>'+
       '<span class="pill">'+ac.pc_if+' ⇄ '+ac.box_if+'</span>'+
@@ -242,13 +312,13 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
       '<button class="btn sm" id="ovReload">Reload</button>'+
       '<button class="btn sm bad" id="ovStop">Stop</button></div>';
     V.appendChild(act);
-    act.querySelector('#ovReload').onclick=async function(){await api('/reload',{method:'POST'});toast('reload sent');};
-    act.querySelector('#ovStop').onclick=async function(){await api('/stop',{method:'POST'});toast('stopped');renderOverview();};
+    act.querySelector('#ovReload').onclick=async function(){var r=await api('/reload',{method:'POST'});toast(r&&r.ok!==false?'Reload sent':'Reload failed',r&&r.ok!==false?'ok':'err');};
+    act.querySelector('#ovStop').onclick=async function(){await api('/stop',{method:'POST'});toast('Datapath stopped','ok');renderOverview();};
 
     var lab=h('div','sub','Packet counters'); V.appendChild(lab);
     var pt=h('div','grid tiles');
-    [['seen','Seen',''],['accept','Accept','accept'],['modified','Modified','modified'],['drop','Drop','drop'],['error','Error','error'],['trace','Trace','']].forEach(function(x){
-      var t=h('div','tile '+x[2]); t.innerHTML='<span class="k">'+x[1]+'</span><span class="v mono">'+(st[x[0]]||0).toLocaleString()+'</span>'; pt.appendChild(t);
+    [['seen','Seen','','seen'],['accept','Accept','accept',''],['modified','Modified','modified','modified'],['drop','Drop','drop','drop'],['error','Error','error','error'],['trace','Trace','','']].forEach(function(x){
+      var t=h('div','tile '+x[2]); t.innerHTML='<span class="k">'+x[1]+(x[3]?' '+infoBtn(x[3]):'')+'</span><span class="v mono">'+(st[x[0]]||0).toLocaleString()+'</span>'; pt.appendChild(t);
     }); V.appendChild(pt);
     if(!st.loaded){var w=h('div','sub','No script loaded — counters are zero until you load one from Files or a panel.');w.style.marginTop='10px';V.appendChild(w);}
   }
@@ -267,10 +337,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     left.appendChild(list); split.appendChild(left);
     var right=h('div','card'); right.id='editor'; right.innerHTML='<div class="empty">Select a script to edit.</div>'; split.appendChild(right);
     V.appendChild(split);
-    left.querySelector('#newScript').onclick=function(){
-      var name=promptName(); if(!name)return;
-      openEditor('scripts/'+name,'@udp(port=12345)\ndef packet():\n    accept()\n',null,null);
-    };
+    left.querySelector('#newScript').onclick=function(){var name=promptName('new script name (e.g. my_script.ppy)'); if(!name)return; if(!/\.ppy$/.test(name))name+='.ppy'; openEditor('scripts/'+name,'@udp(port=12345)\ndef packet():\n    accept()\n',null,null);};
   }
   async function openScript(path,it,list){
     [].forEach.call(list.children,function(x){x.classList.toggle('sel',x===it);});
@@ -286,23 +353,23 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
       '<textarea id="edSrc" spellcheck="false"></textarea><div class="out" id="edOut" style="margin-top:10px">'+
       (err?('<span class="err">'+err+'</span>'):(meta?('OK — UDP/'+meta.port+' · '+meta.instructions+' instructions'):''))+'</div>';
     e.querySelector('#edSrc').value=source;
-    e.querySelector('#edSave').onclick=async function(){await api('/script',{method:'POST',body:JSON.stringify({path:path,source:e.querySelector('#edSrc').value})});setOut('saved.');};
-    e.querySelector('#edCheck').onclick=async function(){var r=await api('/check',{method:'POST',body:JSON.stringify({path:path})});r.error?setOut(r.error,true):setOut((r.disasm||'ok'));};
-    e.querySelector('#edLoad').onclick=async function(){var r=await api('/load',{method:'POST',body:JSON.stringify({path:path})});setOut(r.message||(r.ok?'loaded':'failed'),!r.ok);};
-    e.querySelector('#edDel').onclick=async function(){await api('/script?path='+encodeURIComponent(path),{method:'DELETE'});renderFiles();};
     function setOut(t,bad){var o=e.querySelector('#edOut');o.textContent=t;o.className='out'+(bad?' err':'');}
+    e.querySelector('#edSave').onclick=async function(){await api('/script',{method:'POST',body:JSON.stringify({path:path,source:e.querySelector('#edSrc').value})});setOut('saved.');toast('Script saved','ok');};
+    e.querySelector('#edCheck').onclick=async function(){var r=await api('/check',{method:'POST',body:JSON.stringify({path:path})});r.error?setOut(r.error,true):setOut((r.disasm||'ok'));};
+    e.querySelector('#edLoad').onclick=async function(){var r=await api('/load',{method:'POST',body:JSON.stringify({path:path})});setOut(r.message||(r.ok?'loaded':'failed'),!r.ok);toast(r.ok?'Loaded & attached':'Load failed',r.ok?'ok':'err');};
+    e.querySelector('#edDel').onclick=async function(){await api('/script?path='+encodeURIComponent(path),{method:'DELETE'});toast('Script deleted','ok');renderFiles();};
   }
 
   async function renderSystems(){
     var r=await api('/systems');
-    V.innerHTML=demoBanner()+'<h2 class="tt">Packet systems</h2><div class="sub">Each config describes a packet format and links a script and a panel.</div>';
+    V.innerHTML=demoBanner()+'<h2 class="tt">Packet systems '+infoBtn('systems')+'</h2><div class="sub">Each config describes a packet format and links a script and a panel.</div>';
     var c=h('div','card');
     var rows=(r.systems||[]).map(function(s){
       return '<tr><td class="mono">'+s.config+'</td><td class="mono">'+(s.port||'—')+'</td><td>'+s.fields+'</td>'+
         '<td class="mono">'+(s.linked_script||'<span style="color:var(--faint)">—</span>')+'</td>'+
         '<td>'+(s.linked_panel?('<a class="pill" href="panel/'+s.linked_panel+'">'+s.linked_panel+' →</a>'):'<span style="color:var(--faint)">—</span>')+'</td></tr>';
     }).join('');
-    c.innerHTML='<table><thead><tr><th>Config</th><th>Port</th><th>Fields</th><th>Linked script</th><th>Linked panel</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="empty">No configs.</td></tr>')+'</tbody></table>';
+    c.innerHTML='<table><thead><tr><th>Config '+infoBtn('config')+'</th><th>Port '+infoBtn('port')+'</th><th>Fields</th><th>Linked script</th><th>Linked panel '+infoBtn('panel')+'</th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="empty">No configs.</td></tr>')+'</tbody></table>';
     V.appendChild(c);
   }
 
@@ -313,7 +380,7 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     ['system','packet','crash'].forEach(function(k){
       var b=h('button','btn sm'+(k===logKind?' primary':''),k); b.onclick=function(){logKind=k;renderLogs();}; tabs.appendChild(b);
     });
-    var clr=h('button','btn sm bad','Clear'); clr.style.marginLeft='auto'; clr.onclick=async function(){await api('/logs/clear?type='+logKind,{method:'POST'});renderLogs();};
+    var clr=h('button','btn sm bad','Clear'); clr.style.marginLeft='auto'; clr.onclick=async function(){await api('/logs/clear?type='+logKind,{method:'POST'});toast('Log cleared','ok');renderLogs();};
     tabs.appendChild(clr); V.appendChild(tabs);
     var r=await api('/logs?type='+logKind+'&tail=400');
     var w=h('div','logwrap',(r.lines||[]).map(function(l){return l.replace(/</g,'&lt;');}).join('\n')||'(empty)');
@@ -322,15 +389,11 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
 
   async function renderPanels(){
     var r=await api('/panels');
-    V.innerHTML=demoBanner()+'<h2 class="tt">Panels</h2><div class="sub">Script panels group scripts with their own page. Create one and link scripts to it.</div>';
+    V.innerHTML=demoBanner()+'<h2 class="tt">Panels '+infoBtn('panel')+'</h2><div class="sub">Script panels group scripts with their own page. Create one and link scripts to it.</div>';
     var bar=h('div','row');bar.style.marginBottom='12px';
     bar.innerHTML='<button class="btn primary" id="newPanel">Create panel</button>';
     V.appendChild(bar);
-    bar.querySelector('#newPanel').onclick=async function(){
-      var name=promptName('panel name (letters/digits/-_)'); if(!name)return;
-      var res=await api('/panels',{method:'POST',body:JSON.stringify({name:name,title:name})});
-      if(res&&res.error)toast(res.error); renderPanels();
-    };
+    bar.querySelector('#newPanel').onclick=async function(){var name=promptName('panel name (letters/digits/-_)'); if(!name)return; var res=await api('/panels',{method:'POST',body:JSON.stringify({name:name,title:name})}); if(res&&res.error){toast(res.error,'err');}else toast('Panel created','ok'); renderPanels();};
     var g=h('div','grid');g.style.gridTemplateColumns='repeat(auto-fill,minmax(230px,1fr))';
     (r.panels||[]).forEach(function(p){
       var c=h('div','card panelcard');
@@ -342,39 +405,61 @@ input.tok{background:var(--surface-2);border:1px solid var(--edge);border-radius
     V.appendChild(g);
   }
 
-  function promptName(label){
-    // window.prompt works in the served browser; it is inert in the artifact sandbox.
-    try{var v=window.prompt(label||'name');return v?v.trim():null;}catch(e){return null;}
+  function promptName(label){try{var v=window.prompt(label||'name');return v?v.trim():null;}catch(e){toast('Naming needs the device UI','info');return null;}}
+
+  // ---------- New system modal ----------
+  function openNewSys(){
+    var w=h('div','modal-wrap');
+    w.innerHTML='<div class="modal card">'+
+      '<h3 style="font-size:16px;display:flex;align-items:center;gap:7px">New system '+infoBtn('newsys')+'</h3>'+
+      '<div class="sub" style="margin:0">Creates a config, a script and a panel, all linked together.</div>'+
+      '<label class="fld"><span class="lblrow">Script name</span><input id="nsName" placeholder="my_script.ppy"></label>'+
+      '<label class="fld"><span class="lblrow">UDP port '+infoBtn('port')+'</span><input id="nsPort" type="number" value="12345" min="1" max="65535"></label>'+
+      '<label class="fld"><span class="lblrow">Panel '+infoBtn('panel')+'</span><input id="nsPanel" placeholder="(defaults to the script name)"></label>'+
+      '<div class="out hidden" id="nsOut"></div>'+
+      '<div class="row" style="justify-content:flex-end"><button class="btn" id="nsCancel">Cancel</button><button class="btn primary" id="nsCreate">Create</button></div></div>';
+    document.body.appendChild(w);
+    var nameEl=w.querySelector('#nsName'), panelEl=w.querySelector('#nsPanel'), panelEdited=false;
+    panelEl.addEventListener('input',function(){panelEdited=true;});
+    nameEl.addEventListener('input',function(){ if(!panelEdited) panelEl.value=nameEl.value.replace(/\.ppy$/,'').replace(/[^A-Za-z0-9_-]/g,''); });
+    nameEl.focus();
+    function close(){w.remove();}
+    w.onclick=function(e){if(e.target===w)close();};
+    w.querySelector('#nsCancel').onclick=close;
+    w.querySelector('#nsCreate').onclick=async function(){
+      var name=nameEl.value.trim(); var out=w.querySelector('#nsOut');
+      if(!name){out.classList.remove('hidden');out.className='out err';out.textContent='Enter a script name.';return;}
+      var body={script:name, port:parseInt(w.querySelector('#nsPort').value,10)||12345, panel:panelEl.value.trim()||null};
+      var r=await api('/system/new',{method:'POST',body:JSON.stringify(body)});
+      if(r&&r.error){out.classList.remove('hidden');out.className='out err';out.textContent=r.error;return;}
+      close();
+      toast('System created — <b>'+(r.script||'').split('/').pop()+'</b> + '+(r.config||'')+' + panel <b>'+(r.panel||'')+'</b>','ok');
+      tab='files'; [].forEach.call(document.querySelectorAll('#nav a'),function(x){x.classList.toggle('sel',x.dataset.tab==='files');}); render();
+    };
   }
-  function toast(t){var d=document.getElementById('connText');var o=d.textContent;d.textContent=t;setTimeout(function(){d.textContent=o;},1500);}
+  document.getElementById('newSysBtn').onclick=openNewSys;
 
-  // ---- boot ----
-  async function probe(){try{var r=await fetch('/api/health');DEMO=!r.ok;}catch(e){DEMO=true;}setConn();}
-  async function refresh(){await probe();render();}
-  probe().then(function(){setConn();render();
-    setInterval(function(){if(tab==='overview')renderOverview();},2500);
-  });
-  // ---- new system modal ----
-  var MW=document.getElementById('modalWrap');
-  document.getElementById('newSysBtn').onclick=function(){MW.classList.remove('hidden');document.getElementById('nsOut').classList.add('hidden');};
-  document.getElementById('nsCancel').onclick=function(){MW.classList.add('hidden');};
-  MW.onclick=function(e){if(e.target===MW)MW.classList.add('hidden');};
-  document.getElementById('nsCreate').onclick=async function(){
-    var body={script:document.getElementById('nsName').value.trim(),
-              port:parseInt(document.getElementById('nsPort').value,10)||12345,
-              panel:document.getElementById('nsPanel').value.trim()||null,
-              link:document.getElementById('nsLink').checked};
-    var out=document.getElementById('nsOut'); out.classList.remove('hidden');
-    if(!body.script){out.textContent='Enter a script name.';out.className='out err';return;}
-    var r=await api('/system/new',{method:'POST',body:JSON.stringify(body)});
-    if(r&&r.error){out.textContent=r.error;out.className='out err';return;}
-    out.className='out'; out.textContent='Created '+(r.script||'')+' + '+(r.config||'')+(r.panel?(' + panel '+r.panel):'');
-    setTimeout(function(){MW.classList.add('hidden');tab='files';[].forEach.call(document.querySelectorAll('#nav a'),function(x){x.classList.toggle('sel',x.dataset.tab==='files');});render();},900);
-  };
-
+  // reboot (two-step confirm)
   document.getElementById('rebootBtn').onclick=async function(){
-    if(this.dataset.armed){await api('/reboot',{method:'POST'});toast('reboot sent');this.textContent='Reboot device';delete this.dataset.armed;}
-    else{this.textContent='Confirm reboot?';this.dataset.armed='1';var b=this;setTimeout(function(){b.textContent='Reboot device';delete b.dataset.armed;},3000);}
+    if(this.dataset.armed){await api('/reboot',{method:'POST'});toast('Reboot command sent','info');this.textContent='Reboot';delete this.dataset.armed;}
+    else{this.textContent='Confirm?';this.dataset.armed='1';var b=this;setTimeout(function(){b.textContent='Reboot';delete b.dataset.armed;},3000);}
   };
+
+  // ---------- boot / connection ----------
+  async function boot(){
+    MODE='connecting'; setConn();
+    try{
+      var r=await fetch('/api/health');
+      if(r.ok){
+        // reachable; verify token works
+        var hr=await fetch(q('/api/active'));
+        if(hr.status===401){MODE='needtoken';document.getElementById('tok').classList.remove('hidden');}
+        else MODE='connected';
+      } else MODE='demo';
+    }catch(e){ MODE='demo'; }
+    setConn(); render();
+  }
+  boot();
+  setInterval(function(){ if(tab==='overview' && MODE!=='needtoken') renderOverview(); }, 2600);
 })();
 </script>

@@ -230,19 +230,18 @@ def packet():
 """
 
 def create_system(script_name, port, panel=None, config_name=None, link=True):
-    """Create a config + script (+ optional panel), wired together, in one step."""
+    """Create a config + script + panel, wired together, in one step.
+    A panel is always created (defaults to the script name)."""
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,48}", script_name or ""): raise ValueError("bad script name")
     if not script_name.endswith(".ppy"): script_name += ".ppy"
     port = int(port)
     if not (0 < port <= 65535): raise ValueError("port must be 1..65535")
     config_name = config_name or (script_name[:-4] + ".json")
     if not config_name.endswith(".json"): config_name += ".json"
-    if panel:
-        d = panel_dir(panel)
-        if not d.exists(): create_panel(panel, panel)
-        spath = d / "scripts" / script_name
-    else:
-        spath = SCRIPTS / script_name
+    panel = re.sub(r"[^A-Za-z0-9_-]", "", (panel or script_name[:-4])) or "panel"
+    d = panel_dir(panel)
+    if not d.exists(): create_panel(panel, panel)
+    spath = d / "scripts" / script_name
     if spath.exists(): raise ValueError("script already exists")
     spath.parent.mkdir(parents=True, exist_ok=True)
     spath.write_text(SCRIPT_TEMPLATE.format(name=script_name, port=port, config=config_name))
@@ -259,7 +258,10 @@ def create_panel(name, title=None):
     d = panel_dir(name)
     if d.exists(): raise ValueError("panel already exists")
     (d / "scripts").mkdir(parents=True)
-    meta = {"name": name, "title": title or name, "categories": [{"id": "general", "label": "General"}],
+    meta = {"name": name, "title": title or name, "description": "",
+            "accent": "#2a7de1", "layout": "rail",
+            "categories": [{"id": "general", "label": "General", "color": "#2a7de1"}],
+            "assign": {},
             "created": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     panel_meta_path(name).write_text(json.dumps(meta, indent=2))
     log("system", f"panel created: {name}")
@@ -378,7 +380,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 name = q.get("name", [""])[0]; d = panel_dir(name)
                 meta = json.loads((d / "panel.json").read_text())
                 meta["name"] = name
-                meta["scripts"] = [self._script_brief(sp, name) for sp in sorted((d/"scripts").glob("*.ppy"))]
+                assign = meta.get("assign", {})
+                meta["scripts"] = [self._script_brief(sp, name, assign) for sp in sorted((d/"scripts").glob("*.ppy"))]
                 return self._send(200, meta)
             except Exception as e: return self._send(400, {"error": str(e)})
         if path == "/api/logs":
@@ -424,7 +427,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 name = q.get("name", [b.get("name","")])[0]; d = panel_dir(name)
                 if not d.exists(): return self._send(404, {"error": "no such panel"})
                 meta = b.get("meta") or b
-                (d / "panel.json").write_text(json.dumps(meta, indent=2)); return self._send(200, {"ok": True})
+                (d / "panel.json").write_text(json.dumps(meta, indent=2))
+                log("system", f"panel customized: {name}"); return self._send(200, {"ok": True})
             if path == "/api/panel/action":
                 return self._panel_action(b)
             if path == "/api/logs/clear":
@@ -453,10 +457,10 @@ class H(http.server.BaseHTTPRequestHandler):
         except Exception as e: return self._send(400, {"error": str(e)})
 
     # --- derived
-    def _script_brief(self, p, panel):
+    def _script_brief(self, p, panel, assign=None):
         meta, _d, err = compile_meta(p)
         active = STATE.get("active") == str(p.relative_to(PREFIX))
-        cat = "general"
+        cat = (assign or {}).get(p.name, "general")
         return {"name": p.name, "path": str(p.relative_to(PREFIX)), "panel": panel,
                 "port": meta.get("port") if meta else None,
                 "instructions": meta.get("instructions") if meta else None,
@@ -476,6 +480,7 @@ class H(http.server.BaseHTTPRequestHandler):
 
     def _panel_action(self, b):
         action = b.get("action"); p = safe_path(PREFIX, b.get("path", ""))
+        log("system", f"panel action: {action} {b.get('path','')}")
         if action in ("start", "reload"):
             ok, msg = do_load(p, debug=STATE.get("debug")); return self._send(200 if ok else 500, {"ok": ok, "message": msg})
         if action == "stop":

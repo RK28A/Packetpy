@@ -1,8 +1,31 @@
 # PacketPy v0.4 — Generic Packet Modifier
 
-PacketPy is a generic transparent packet-modification framework built around a Linux bridge, TC/eBPF and a small script language. It contains no application-specific offsets, message IDs or assumptions: you describe the packet fields you care about and write a short script that reads and rewrites them in flight.
+PacketPy is a generic transparent packet-modification framework built around a Linux bridge, TC/eBPF and a small script language called **PyNet**. It contains no application-specific offsets, message IDs or assumptions: you describe the packet fields you care about and write a short PyNet script that reads and rewrites them in flight. A Raspberry Pi sits inline on the cable; you control it from any PC on the LAN at **http://packetpy.local:8080**.
 
-**Full documentation: [DOCS.md](DOCS.md)** — language reference, config, panels, how they interconnect, the packet-targeting model, loops/limits, CLI and API.
+- 🚀 **New? Start here: [GETTING_STARTED.md](GETTING_STARTED.md)** — a zero-to-running walkthrough, including what hardware to buy.
+- 📖 **Full documentation: [DOCS.md](DOCS.md)** — PyNet language reference, config, panels, how they interconnect, the packet-targeting model, loops/limits, CLI and API.
+- 🧰 **Setup for any OS: [setup/](setup/)** — one script per platform.
+
+## Install (Raspberry Pi / Linux)
+
+```bash
+git clone https://github.com/RK28A/Packetpy.git
+cd Packetpy
+sudo ./setup/raspberry.sh          # asks which interfaces, installs everything
+```
+Then open **http://packetpy.local:8080** from any PC on the network and paste the API token the installer printed. On Windows/macOS, run `python3 setup/scaffold.py` to set up the editing side (the packet datapath itself runs only on the Pi/Linux).
+
+## Recommended hardware
+
+A transparent bridge needs **two** Ethernet ports, so every build is a Pi + one USB Ethernet adapter. Pick the chipsets below — they work on Raspberry Pi OS with no drivers.
+
+| Tier | Board | Second port (USB adapter) | For |
+|---|---|---|---|
+| 🟢 Cheapest | Raspberry Pi 3B+ | USB 2.0, **ASIX AX88772** | ~100 Mbps links |
+| 🔵 Mid-range *(recommended)* | Raspberry Pi 4 (2–4 GB) | USB 3.0 gigabit, **Realtek RTL8153** / **ASIX AX88179** | full gigabit, best value |
+| 🔴 High-end | Raspberry Pi 5 (4–8 GB) + cooler | USB 3.0 2.5GbE, **Realtek RTL8156** | lowest latency, 2.5 Gbps headroom |
+
+Plus: A2 microSD, official power supply, two short Cat6 cables. Full buying notes in [GETTING_STARTED.md](GETTING_STARTED.md).
 
 ## What changed in v0.4
 
