@@ -27,7 +27,7 @@ enum {
  OP_LOAD8=40, OP_LOAD16LE=41, OP_LOAD16BE=42, OP_LOADBITS=43,
  OP_STORE8=44, OP_STORE16LE=45, OP_STORE16BE=46, OP_STOREBITS=47,
  OP_STATE_LD=50, OP_STATE_ST=51, OP_META=52,
- OP_RAND=53, OP_TIME=54, OP_TRACE=55,
+ OP_RAND=53, OP_TIME=54, OP_TRACE=55, OP_PARAM=56,
  OP_ACCEPT=60, OP_DROP=61,
 };
 
@@ -70,6 +70,17 @@ struct {
  __type(key, __u32);
  __type(value, struct ppy_counters);
 } ppy_stats SEC(".maps");
+
+// live control values (Param/Toggle/Choice/Number/Button), set from userspace,
+// read-only in the datapath. The panel writes these to change a running script
+// without recompiling or reloading.
+#define MAX_PARAMS 32
+struct {
+ __uint(type, BPF_MAP_TYPE_ARRAY);
+ __uint(max_entries, MAX_PARAMS);
+ __type(key, __u32);
+ __type(value, __u64);
+} ppy_params SEC(".maps");
 
 static __always_inline __u64 cfg(__u32 k){ __u64 *v=bpf_map_lookup_elem(&ppy_config,&k); return v?*v:0; }
 
@@ -155,6 +166,7 @@ int packetpy_vm(struct __sk_buff *skb){
    case OP_META: if(imm==M_DIR)r[d]=direction;else if(imm==M_SPORT)r[d]=sport;else if(imm==M_DPORT)r[d]=dport;else if(imm==M_PLEN)r[d]=plen;else if(imm==M_IPSRC)r[d]=ipsrc;else if(imm==M_IPDST)r[d]=ipdst;else if(imm==M_TTL)r[d]=ttl;break;
    case OP_RAND:r[d]=bpf_get_prandom_u32();break;
    case OP_TIME:r[d]=bpf_ktime_get_ns();break;
+   case OP_PARAM:{__u32 k=(__u32)imm&(MAX_PARAMS-1);__u64*v=bpf_map_lookup_elem(&ppy_params,&k);r[d]=v?*v:0;break;}
    case OP_TRACE:n_trace++;break;
    case OP_ACCEPT:PPY_RET(0);
    case OP_DROP:PPY_RET(1);

@@ -29,10 +29,13 @@ TOKENF  = VAR / "token"
 
 MAPS = Path("/sys/fs/bpf/packetpy/maps")
 STAT_MAP = MAPS / "ppy_stats"
+PARAMS_MAP = MAPS / "ppy_params"
+PARAMDIR = VAR / "params"
+MAX_PARAMS = 32
 LOG_MAX_DAYS = 21
 STAT_NAMES = ["seen", "accept", "drop", "modified", "error", "trace"]
 
-for d in (SCRIPTS, CONFIG, PANELS, VAR, LOGS):
+for d in (SCRIPTS, CONFIG, PANELS, VAR, LOGS, PARAMDIR):
     d.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(PREFIX))
@@ -227,6 +230,38 @@ def compile_meta(path):
     except Exception as e:
         return None, None, str(e)
 
+# ---------------------------------------------------------------- live params
+def params_file(script_rel):
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", script_rel)
+    return PARAMDIR / (safe + ".json")
+
+def saved_params(script_rel):
+    try: return {int(k): int(v) for k, v in json.loads(params_file(script_rel).read_text()).items()}
+    except Exception: return {}
+
+def save_param(script_rel, slot, value):
+    d = saved_params(script_rel); d[int(slot)] = int(value)
+    atomic_write(params_file(script_rel), json.dumps(d))
+
+def read_params_map():
+    """Return {slot: value} currently in ppy_params (one bpftool dump)."""
+    if not PARAMS_MAP.exists(): return {}
+    try:
+        rc, so, se = run(["bpftool", "-j", "map", "dump", "pinned", str(PARAMS_MAP)])
+        out = {}
+        for ent in json.loads(so or "[]"):
+            key = ent.get("key"); val = ent.get("value")
+            def tob(x): return bytes(int(b, 16) if isinstance(b, str) else int(b) for b in x)
+            k = struct.unpack("<I", tob(key).ljust(4, b"\x00")[:4])[0]
+            v = struct.unpack("<Q", tob(val).ljust(8, b"\x00")[:8])[0]
+            out[k] = v
+        return out
+    except Exception: return {}
+
+def set_param_map(slot, value):
+    rc, so, se = run(["packetpy", "param", str(int(slot)), str(int(value))], timeout=10)
+    return rc == 0
+
 def config_label_map():
     """Map each linked script path -> its config's display name, so panels can
     show scripts under the name set in the config (config.name / linked_script)."""
@@ -364,6 +399,10 @@ def do_load(path, debug=False, reset=False):
            "--pc-if", pc, "--box-if", box]
     if debug: cmd.append("--debug")
     if reset: cmd.append("--reset-stats")
+    # re-apply the control values the user last set for this script
+    rel = str(Path(path).relative_to(PREFIX))
+    for slot, val in saved_params(rel).items():
+        cmd += ["--param", f"{slot}={val}"]
     rc, so, se = run(cmd, timeout=40)
     if rc != 0:
         log("crash", f"load failed {path}: {se.strip()}")
@@ -473,6 +512,16 @@ class H(http.server.BaseHTTPRequestHandler):
             kind = q.get("type", ["system"])[0]
             if kind not in ("system", "packet", "crash"): return self._send(400, {"error": "bad log type"})
             return self._send(200, {"type": kind, "lines": read_log(kind, int(q.get("tail", ["300"])[0]))})
+        if path == "/api/params":
+            try:
+                p = resolve_script_path(q.get("path", [""])[0]); rel = str(p.relative_to(PREFIX))
+                meta, _d, err = compile_meta(p)
+                controls = (meta or {}).get("controls", [])
+                active = STATE.get("active") == rel
+                live = read_params_map() if active else {}; saved = saved_params(rel)
+                for ctl in controls: ctl["value"] = live.get(ctl["slot"], saved.get(ctl["slot"], ctl["default"]))
+                return self._send(200, {"path": rel, "active": active, "error": err, "controls": controls})
+            except Exception as e: return self._send(400, {"error": str(e)})
         return self._send(404, {"error": "unknown endpoint"})
 
     def do_POST(self):
@@ -520,6 +569,8 @@ class H(http.server.BaseHTTPRequestHandler):
                 meta = b.get("meta") or b
                 atomic_write(d / "panel.json", json.dumps(meta, indent=2))
                 log("system", f"panel customized: {name}"); return self._send(200, {"ok": True})
+            if path == "/api/param":
+                return self._set_param(b)
             if path == "/api/panel/action":
                 return self._panel_action(b)
             if path == "/api/logs/clear":
@@ -555,7 +606,13 @@ class H(http.server.BaseHTTPRequestHandler):
         rel = str(p.relative_to(PREFIX))
         active = STATE.get("active") == rel
         cat = (assign or {}).get(p.name, "general")
+        controls = (meta or {}).get("controls", [])
+        live = read_params_map() if active else {}
+        saved = saved_params(rel)
+        for ctl in controls:  # attach the current value (live map > saved > default)
+            ctl["value"] = live.get(ctl["slot"], saved.get(ctl["slot"], ctl["default"]))
         return {"name": p.name, "label": (labels or {}).get(rel) or p.stem, "path": rel, "panel": panel,
+                "controls": controls,
                 "port": meta.get("port") if meta else None,
                 "instructions": meta.get("instructions") if meta else None,
                 "ok": err is None, "error": err, "active": active, "category": cat}
@@ -571,6 +628,32 @@ class H(http.server.BaseHTTPRequestHandler):
                          "linked_script": data.get("linked_script"),
                          "linked_panel": data.get("linked_panel")})
         return rows
+
+    def _set_param(self, b):
+        """Set a live control value for a script. Validates against that control's
+        manifest, writes ppy_params (effective immediately if the script is active),
+        and remembers it so it survives a reload. Buttons pulse back to 0."""
+        try: p = resolve_script_path(b.get("path", ""))
+        except Exception as e: return self._send(400, {"error": str(e)})
+        rel = str(p.relative_to(PREFIX))
+        meta, _d, err = compile_meta(p)
+        ctl = next((c for c in (meta or {}).get("controls", []) if c["name"] == b.get("name") or c["slot"] == b.get("slot")), None)
+        if not ctl: return self._send(404, {"error": "no such control"})
+        try: val = int(b.get("value"))
+        except Exception: return self._send(400, {"error": "value must be an integer"})
+        lo, hi = ctl.get("min", 0), ctl.get("max", 1)
+        if ctl.get("kind") == "choice":
+            if val not in [o["value"] for o in ctl.get("options", [])]:
+                return self._send(400, {"error": "value not in the choice options"})
+        else:
+            val = max(lo, min(hi, val))
+        active = STATE.get("active") == rel
+        if active: set_param_map(ctl["slot"], val)
+        save_param(rel, ctl["slot"], val)
+        log("system", f"param {rel} {ctl['name']}={val}" + ("" if active else " (saved; applies when started)"))
+        if ctl.get("momentary") and active:  # button: pulse back to 0 shortly after
+            threading.Timer(0.25, lambda: (set_param_map(ctl["slot"], 0), save_param(rel, ctl["slot"], 0))).start()
+        return self._send(200, {"ok": True, "value": val, "applied": active})
 
     def _panel_action(self, b):
         action = b.get("action"); p = resolve_script_path(b.get("path", ""))

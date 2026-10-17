@@ -11,9 +11,11 @@ OPS = {
     'JZ':30, 'JNZ':31, 'JMP':32,
     'LOAD8':40, 'LOAD16LE':41, 'LOAD16BE':42, 'LOADBITS':43,
     'STORE8':44, 'STORE16LE':45, 'STORE16BE':46, 'STOREBITS':47,
-    'STATE_LD':50, 'STATE_ST':51, 'META':52, 'RAND':53, 'TIME':54, 'TRACE':55,
+    'STATE_LD':50, 'STATE_ST':51, 'META':52, 'RAND':53, 'TIME':54, 'TRACE':55, 'PARAM':56,
     'ACCEPT':60, 'DROP':61,
 }
+MAX_PARAMS = 32
+CONTROL_KINDS = ('Param','Toggle','Choice','Number','Button')
 OPN = {v:k for k,v in OPS.items()}
 MAX_INSNS = 64
 MAX_REGS = 24
@@ -39,7 +41,7 @@ class Compiler(ast.NodeVisitor):
     def __init__(self, packet_config=None):
         self.code=[]; self.port=0; self.state={}; self.state_init=[]
         self.vars={}; self.free=list(range(MAX_REGS-1,-1,-1)); self.helpers={}
-        self.event=None; self.notes={}; self.log_labels=[]; self.loop_ends=[]
+        self.event=None; self.notes={}; self.log_labels=[]; self.loop_ends=[]; self.controls={}
         self.packet_config = packet_config or {"constants": {}, "fields": {}}
         self.packet_constants = {k:int(v) for k,v in self.packet_config.get("constants", {}).items() if isinstance(v,(int,bool))}
         self.packet_fields = self.packet_config.get("fields", {})
@@ -69,6 +71,8 @@ class Compiler(ast.NodeVisitor):
                 if name in self.state: self.err(n,'duplicate state')
                 if len(self.state)>=64: self.err(n,'at most 64 State() slots')
                 self.state[name]=len(self.state); self.state_init.append(int(n.value.args[0].value) & 0xffffffffffffffff)
+            elif isinstance(n,ast.Assign) and len(n.targets)==1 and isinstance(n.targets[0],ast.Name) and isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Name) and n.value.func.id in CONTROL_KINDS:
+                self.parse_control(n)
             elif isinstance(n,ast.FunctionDef):
                 dec_udp=False
                 for d in n.decorator_list:
@@ -90,12 +94,59 @@ class Compiler(ast.NodeVisitor):
         if not self.code or self.code[-1].op not in (OPS['ACCEPT'],OPS['DROP']): self.emit('ACCEPT')
         return self
 
+    def parse_control(self, n):
+        """A top-level `name = Param/Toggle/Choice/Number/Button(...)` declaration.
+        Becomes a live control: a slot in ppy_params the panel writes to while the
+        script runs. Reading the name in the script loads the current value."""
+        name=n.targets[0].id; call=n.value; kind=call.func.id
+        if name in self.controls or name in self.state: self.err(n,f'duplicate control/state {name!r}')
+        if len(self.controls)>=MAX_PARAMS: self.err(n,f'at most {MAX_PARAMS} controls')
+        def cint(node,what):
+            if isinstance(node,ast.Constant) and isinstance(node.value,(int,bool)): return int(node.value)
+            if isinstance(node,ast.UnaryOp) and isinstance(node.op,ast.USub) and isinstance(node.operand,ast.Constant): return -int(node.operand.value)
+            self.err(n,f'{kind} {what} must be an integer literal')
+        kw={k.arg:k.value for k in call.keywords}
+        def kwint(key,default,positional=None):
+            if positional is not None and len(call.args)>positional: return cint(call.args[positional],key)
+            if key in kw: return cint(kw[key],key)
+            return default
+        def kwstr(key):
+            v=kw.get(key)
+            return v.value if isinstance(v,ast.Constant) and isinstance(v.value,str) else None
+        c={'name':name,'kind':kind.lower(),'slot':len(self.controls),'label':kwstr('label') or name,
+           'group':kwstr('group') or 'Parameters'}
+        if kind=='Button':
+            c.update(default=0,min=0,max=1,momentary=True)
+        elif kind=='Toggle':
+            c.update(default=1 if (call.args and cint(call.args[0],'default')) else 0,min=0,max=1)
+        elif kind in ('Param','Number'):
+            c.update(default=cint(call.args[0],'default') if call.args else 0,
+                     min=kwint('min',0,1),max=kwint('max',100,2),step=kwint('step',1),
+                     widget='number' if kind=='Number' else 'slider')
+            if c['min']>c['max']: self.err(n,f'{kind} min>max')
+            c['default']=max(c['min'],min(c['max'],c['default']))
+        elif kind=='Choice':
+            if len(call.args)<2 or not isinstance(call.args[1],(ast.List,ast.Tuple)): self.err(n,'Choice(default, [options])')
+            opts=[]
+            for i,el in enumerate(call.args[1].elts):
+                if isinstance(el,ast.Constant) and isinstance(el.value,int): opts.append({'label':str(el.value),'value':int(el.value)})
+                elif isinstance(el,ast.Constant) and isinstance(el.value,str): opts.append({'label':el.value,'value':i})
+                else: self.err(n,'Choice options must be int or string literals')
+            d=call.args[0]
+            if isinstance(d,ast.Constant) and isinstance(d.value,str):
+                default=next((o['value'] for o in opts if o['label']==d.value), opts[0]['value'])
+            else:
+                default=cint(d,'default')
+            c.update(default=default,min=min(o['value'] for o in opts),max=max(o['value'] for o in opts),options=opts)
+        self.controls[name]=c
+
     def compile_stmt(self,n):
         if isinstance(n,ast.Assign):
             if not n.targets or not all(isinstance(t,ast.Name) for t in n.targets): self.err(n,'only simple variable assignment supported')
             names=[t.id for t in n.targets]
             for name in names:
                 if name in META or name in CONST or name in self.packet_constants: self.err(n,f'cannot assign to reserved name {name!r}')
+                if name in self.controls: self.err(n,f'{name!r} is a control and is read-only in the script')
             # fast path: single var = integer literal
             if len(names)==1 and names[0] not in self.state and isinstance(n.value,ast.Constant) and isinstance(n.value.value,(int,bool)):
                 self.emit('MOVI',dst=self.varreg(names[0]),imm=int(n.value.value),note=f'{names[0]} ='); return
@@ -224,6 +275,8 @@ class Compiler(ast.NodeVisitor):
             r=self.alloc();self.emit('MOVI',dst=r,imm=self.packet_constants[name]);return r
         if name in META:
             r=self.alloc();self.emit('META',dst=r,imm=META[name]);return r
+        if name in self.controls:
+            r=self.alloc();self.emit('PARAM',dst=r,imm=self.controls[name]['slot'],note=f'control {name}');return r
         if name in self.state:
             r=self.alloc();self.emit('STATE_LD',dst=r,imm=self.state[name]);return r
         if name in self.vars:
@@ -399,8 +452,9 @@ def compile_file(path, config_path=None):
     cfg=load_packet_config(config_path)
     c=Compiler(cfg).compile(Path(path).read_text())
     blob=b''.join(i.pack() for i in c.code)
-    meta={'version':3,'port':c.port,'instructions':len(c.code),'max_instructions':MAX_INSNS,
+    meta={'version':4,'port':c.port,'instructions':len(c.code),'max_instructions':MAX_INSNS,
           'states':c.state,'state_init':c.state_init,'log_labels':c.log_labels,
+          'controls':[c.controls[k] for k in c.controls],
           'packet_config':str(config_path) if config_path else None}
     return c,blob,meta
 
@@ -451,6 +505,16 @@ def cmd_load(a):
         val=blob[idx*16:(idx+1)*16] if idx < len(c.code) else zero
         map_update(prog,struct.pack('<I',idx),val)
     for name,idx in c.state.items(): map_update(state,struct.pack('<I',idx),struct.pack('<Q',c.state_init[idx]))
+    # control defaults into ppy_params (overridable live by the panel). Preset
+    # values can be supplied via --param slot=value (used to keep values on reload).
+    params=a.params_map
+    if params and Path(params).exists():
+        preset={}
+        for pv in (a.param or []):
+            k,_,v=pv.partition('='); preset[int(k)]=int(v)
+        for ctrl in meta['controls']:
+            val=preset.get(ctrl['slot'], ctrl['default'])
+            map_update(params,struct.pack('<I',ctrl['slot']),struct.pack('<Q',val & 0xffffffffffffffff))
     # config[0]=port,1=pc,2=box,4=debug set before count, then count last
     for idx,v in [(0,c.port),(1,pcidx),(2,boxidx),(4,1 if a.debug else 0)]:
         map_update(config,struct.pack('<I',idx),struct.pack('<Q',v))
@@ -477,6 +541,13 @@ def cmd_stats(a):
     else:
         print('PacketPy runtime stats')
         for i,n in enumerate(STAT_NAMES): print(f'  {n:10} {counts[i]}')
+
+def cmd_param(a):
+    params=a.params_map
+    if not Path(params).exists(): print(f'params map not found: {params}',file=sys.stderr); sys.exit(1)
+    if not (0 <= a.slot < MAX_PARAMS): print(f'slot must be 0..{MAX_PARAMS-1}',file=sys.stderr); sys.exit(1)
+    map_update(params,struct.pack('<I',a.slot),struct.pack('<Q',a.value & 0xffffffffffffffff))
+    print(f'param[{a.slot}] = {a.value}')
 
 def cmd_debug(a):
     config=a.config_map
@@ -553,12 +624,15 @@ def main():
     p=argparse.ArgumentParser(prog='packetpy'); sp=p.add_subparsers(dest='cmd',required=True)
     PROG='/sys/fs/bpf/packetpy/maps/ppy_program'; STATE='/sys/fs/bpf/packetpy/maps/ppy_state'
     CONFIG='/sys/fs/bpf/packetpy/maps/ppy_config'; STATS='/sys/fs/bpf/packetpy/maps/ppy_stats'
+    PARAMS='/sys/fs/bpf/packetpy/maps/ppy_params'
     q=sp.add_parser('check',help='compile and show bytecode');q.add_argument('script');q.add_argument('--config');q.set_defaults(fn=cmd_check)
     q=sp.add_parser('disasm',help='compile and print disassembly only');q.add_argument('script');q.add_argument('--config');q.set_defaults(fn=cmd_disasm)
     q=sp.add_parser('build',help='compile to .ppyb');q.add_argument('script');q.add_argument('-o','--out');q.add_argument('--config');q.set_defaults(fn=cmd_build)
     q=sp.add_parser('load',help='compile and load into the kernel maps');q.add_argument('script');q.add_argument('--config');q.add_argument('--pc-if',default='eth0');q.add_argument('--box-if',default='eth1')
     q.add_argument('--debug',action='store_true',help='enable kernel trace_pipe output');q.add_argument('--reset-stats',action='store_true',help='zero the stats counters on load')
-    q.add_argument('--prog-map',default=PROG);q.add_argument('--state-map',default=STATE);q.add_argument('--config-map',default=CONFIG);q.add_argument('--stats-map',default=STATS);q.set_defaults(fn=cmd_load)
+    q.add_argument('--param',action='append',help='preset a control value as slot=value (repeatable)')
+    q.add_argument('--prog-map',default=PROG);q.add_argument('--state-map',default=STATE);q.add_argument('--config-map',default=CONFIG);q.add_argument('--stats-map',default=STATS);q.add_argument('--params-map',default=PARAMS);q.set_defaults(fn=cmd_load)
+    q=sp.add_parser('param',help='set a live control value: packetpy param <slot> <value>');q.add_argument('slot',type=int);q.add_argument('value',type=int);q.add_argument('--params-map',default=PARAMS);q.set_defaults(fn=cmd_param)
     q=sp.add_parser('stats',help='print runtime packet counters');q.add_argument('--stats-map',default=STATS);q.add_argument('--json',action='store_true');q.set_defaults(fn=cmd_stats)
     q=sp.add_parser('debug',help='toggle kernel trace output at runtime');q.add_argument('state',choices=['on','off']);q.add_argument('--config-map',default=CONFIG);q.set_defaults(fn=cmd_debug)
     q=sp.add_parser('network',help='inspect/backup/restore the bridge network state');q.add_argument('action',choices=['status','backup','restore']);q.set_defaults(fn=cmd_network)
