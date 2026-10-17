@@ -2,6 +2,23 @@
 
 All notable changes to PacketPy are recorded here, newest first.
 
+## v0.6
+
+### Live controls
+- PyNet gains **live controls** declared at the top level: `Param` (slider),
+  `Toggle` (switch), `Choice` (dropdown), `Number` (numeric input) and `Button`
+  (momentary pulse), each optionally assigned to a `group=`.
+- Controls live in a new read-only eBPF map (`ppy_params`); the panel writes them
+  **while the script runs** — no recompile, no reload — and values survive a
+  reload. Up to 32 per script.
+- The panel renders each control as its widget inside **collapsible group
+  bubbles** (remembered per group).
+- Agent: `GET /api/params`, `POST /api/param` (validated against the control's
+  range/options, button pulse). CLI: `packetpy param <slot> <value>` and
+  `packetpy load --param slot=value`.
+- Verified end-to-end in a netns: changing a control alters the modified packets
+  immediately with no reload.
+
 ## v0.5
 
 ### Security & robustness

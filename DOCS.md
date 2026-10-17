@@ -201,6 +201,25 @@ accept()  /  pass_packet()   # let the packet through
 drop()                       # drop the packet
 ```
 
+### Live controls (panel widgets)
+Declare controls at the top level; the panel renders them as widgets you can
+change **while the script runs**, with no recompile or reload. Reading the name
+in the script gives the current value (read-only in the script).
+
+```python
+speed   = Param(2, min=1, max=8, step=1, label="Speed", group="Movement")  # slider
+enabled = Toggle(True, label="Enabled", group="Movement")                  # on/off switch
+mode    = Choice("fast", ["fast", "slow", "turbo"], label="Mode")          # dropdown (value = index)
+level   = Number(50, min=0, max=100, step=5)                               # numeric input
+reset   = Button(label="Reset now")                                        # momentary pulse (1 then back to 0)
+```
+- `group="..."` puts controls into a named, collapsible bubble on the panel.
+- Up to 32 controls per script. Values live in the `ppy_params` map; the panel
+  writes them live (and they survive a reload — last value is remembered).
+- `Choice` with string options stores the selected index; with int options it
+  stores the int. `Button` reads as `1` briefly after a click.
+- CLI: `packetpy param <slot> <value>` sets one live; `packetpy load … --param slot=value` presets.
+
 ### Named field access (uses the config)
 ```python
 v = read_field("header.value", base)       # read a field defined in fields.json

@@ -79,6 +79,33 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--bad)} .toast.out{animation:slideOut .22s ease forwards}
 @keyframes slideIn{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
 @keyframes slideOut{to{opacity:0;transform:translateX(24px)}}
+
+/* control groups (collapsible bubbles) + widgets */
+.groups{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.group{border:1px solid var(--edge);border-radius:10px;background:var(--surface-2);overflow:hidden}
+.ghead{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-weight:600;font-size:12.5px;color:var(--muted);user-select:none}
+.ghead:hover{color:var(--fg)}
+.ghead .chev{margin-left:auto;transition:transform .18s;font-size:11px}
+.group.collapsed .ghead .chev{transform:rotate(-90deg)}
+.gbody{display:flex;flex-direction:column;gap:11px;padding:4px 11px 12px;transition:max-height .22s ease,opacity .18s;max-height:800px;overflow:hidden}
+.group.collapsed .gbody{max-height:0;opacity:0;padding-top:0;padding-bottom:0}
+.ctl{display:flex;flex-direction:column;gap:5px}
+.ctl .clab{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.ctl .clab b{color:var(--fg);margin-left:auto;font-variant-numeric:tabular-nums}
+.ctl.disabled{opacity:.5;pointer-events:none}
+.sw{position:relative;width:40px;height:22px;flex:0 0 auto}
+.sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer}
+.sw .tr{position:absolute;inset:0;background:var(--edge);border-radius:999px;transition:.16s}
+.sw .kn{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:var(--faint);transition:.16s}
+.sw input:checked + .tr{background:color-mix(in srgb,var(--accent) 40%,transparent)}
+.sw input:checked + .tr + .kn{left:20px;background:var(--accent)}
+.ctl input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;background:var(--edge);outline:none}
+.ctl input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--surface)}
+.ctl input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--accent);cursor:pointer;border:2px solid var(--surface)}
+.ctl input[type=number],.ctl select{background:var(--surface);border:1px solid var(--edge);border-radius:7px;padding:6px 8px;font-size:13px;color:var(--fg)}
+.ctl .cbtn{align-self:flex-start;border:1px solid var(--edge);background:var(--accent);color:#fff;border-radius:8px;padding:6px 13px;font-size:12.5px;font-weight:600}
+.ctl .cbtn:active{transform:translateY(1px)}
+.ctlhint{font-size:11px;color:var(--faint)}
 </style>
 
 <header class="top">
@@ -117,9 +144,15 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
     categories:[{id:'general',label:'General',color:'#2a7de1'},{id:'testing',label:'Testing',color:'#c8871b'}],
     assign:{'speed.ppy':'general','wip.ppy':'testing'},
     scripts:[
-      {name:'passthrough.ppy',path:'panels/'+name+'/scripts/passthrough.ppy',port:12345,instructions:6,ok:true,active:true,category:'general'},
-      {name:'speed.ppy',path:'panels/'+name+'/scripts/speed.ppy',port:27015,instructions:28,ok:true,active:false,category:'general'},
-      {name:'wip.ppy',path:'panels/'+name+'/scripts/wip.ppy',port:0,instructions:null,ok:false,error:'line 4: unknown field',active:false,category:'testing'}
+      {name:'passthrough.ppy',label:'Passthrough',path:'panels/'+name+'/scripts/passthrough.ppy',port:12345,instructions:6,ok:true,active:true,category:'general',controls:[]},
+      {name:'speed.ppy',label:'Speed hack',path:'panels/'+name+'/scripts/speed.ppy',port:27015,instructions:28,ok:true,active:true,category:'general',controls:[
+        {name:'speed',kind:'param',widget:'slider',slot:0,label:'Speed multiplier',group:'Movement',default:2,min:1,max:8,step:1,value:3},
+        {name:'enabled',kind:'toggle',slot:1,label:'Enabled',group:'Movement',default:1,min:0,max:1,value:1},
+        {name:'mode',kind:'choice',slot:2,label:'Mode',group:'Mode',default:0,min:0,max:2,options:[{label:'fast',value:0},{label:'slow',value:1},{label:'turbo',value:2}],value:0},
+        {name:'level',kind:'number',widget:'number',slot:3,label:'Level',group:'Mode',default:50,min:0,max:100,step:5,value:50},
+        {name:'reset',kind:'button',slot:4,label:'Reset now',group:'Mode',default:0,min:0,max:1,momentary:true,value:0}
+      ]},
+      {name:'wip.ppy',label:'WIP',path:'panels/'+name+'/scripts/wip.ppy',port:0,instructions:null,ok:false,error:'line 4: unknown field',active:false,category:'testing',controls:[]}
     ]};
   function demo(path,opts){ if(path.indexOf('/panel?')===0||path.indexOf('/panel&')>=0||path.indexOf('/panel')===0&&(!opts||opts.method!=='POST'))return Promise.resolve(JSON.parse(JSON.stringify(DEMOPANEL))); return Promise.resolve({ok:true}); }
 
@@ -155,7 +188,9 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
       var c=h('div','card'+(s.active?' on':''));
       c.innerHTML='<h3>'+(s.label||s.name)+(s.active?' <span class="pill on">running</span>'+infoBtn('run'):(s.ok?'':' <span class="pill err">error</span>'))+'</h3>'+
         '<div class="meta mono">'+s.name+' · '+(s.ok?('UDP/'+(s.port||'?')+' · '+(s.instructions||0)+' instr'):(s.error||'compile error'))+'</div>'+
+        controlsHtml(s)+
         '<div class="btns"><button class="btn primary" data-a="start">Start</button><button class="btn" data-a="reload">Reload</button><button class="btn bad" data-a="stop">Stop</button></div>';
+      wireControls(c, s);
       c.querySelectorAll('button[data-a]').forEach(function(b){
         b.onclick=async function(){
           var r=await api('/panel/action',{method:'POST',body:JSON.stringify({action:b.dataset.a,path:s.path})});
@@ -170,6 +205,55 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
     });
     if(!list.length)cards.appendChild(h('div','empty','No scripts in this category.'));
     board.appendChild(cards);
+  }
+
+  // ---------- live controls (toggle / slider / number / dropdown / button) ----------
+  function grpKey(script,group){return 'ppy-grp:'+name+':'+script+':'+group;}
+  function collapsed(script,group){try{return localStorage.getItem(grpKey(script,group))==='1';}catch(e){return false;}}
+  function esc(s){return (''+s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+  function widget(ctl){
+    var v=ctl.value==null?ctl.default:ctl.value, id='c_'+ctl.slot;
+    if(ctl.kind==='toggle')
+      return '<div class="ctl"><label class="clab">'+esc(ctl.label)+'<span class="sw"><input type="checkbox" data-slot="'+ctl.slot+'" data-kind="toggle" '+(v?'checked':'')+'><span class="tr"></span><span class="kn"></span></span></label></div>';
+    if(ctl.kind==='button')
+      return '<div class="ctl"><button class="cbtn" data-slot="'+ctl.slot+'" data-kind="button">'+esc(ctl.label)+'</button></div>';
+    if(ctl.kind==='choice'){
+      var opts=(ctl.options||[]).map(function(o){return '<option value="'+o.value+'"'+(o.value==v?' selected':'')+'>'+esc(o.label)+'</option>';}).join('');
+      return '<div class="ctl"><div class="clab">'+esc(ctl.label)+'</div><select data-slot="'+ctl.slot+'" data-kind="choice">'+opts+'</select></div>';
+    }
+    if(ctl.widget==='number'||ctl.kind==='number')
+      return '<div class="ctl"><div class="clab">'+esc(ctl.label)+'</div><input type="number" data-slot="'+ctl.slot+'" data-kind="number" value="'+v+'" min="'+ctl.min+'" max="'+ctl.max+'" step="'+(ctl.step||1)+'"></div>';
+    // slider (param)
+    return '<div class="ctl"><div class="clab">'+esc(ctl.label)+'<b data-val="'+ctl.slot+'">'+v+'</b></div><input type="range" data-slot="'+ctl.slot+'" data-kind="param" value="'+v+'" min="'+ctl.min+'" max="'+ctl.max+'" step="'+(ctl.step||1)+'"></div>';
+  }
+  function controlsHtml(s){
+    var ctrls=s.controls||[]; if(!ctrls.length) return '';
+    var groups={}, order=[];
+    ctrls.forEach(function(c){ if(!groups[c.group]){groups[c.group]=[];order.push(c.group);} groups[c.group].push(c); });
+    var dis=s.active?'':' disabled-note';
+    return '<div class="groups" data-script="'+esc(s.path)+'">'+order.map(function(g){
+      var col=collapsed(s.path,g);
+      return '<div class="group'+(col?' collapsed':'')+'" data-group="'+esc(g)+'"><div class="ghead">'+esc(g)+'<span class="chev">▾</span></div>'+
+        '<div class="gbody">'+groups[g].map(widget).join('')+
+        (s.active?'':'<div class="ctlhint">saved — applies when this script is started</div>')+'</div></div>';
+    }).join('')+'</div>';
+  }
+  function wireControls(card, s){
+    card.querySelectorAll('.ghead').forEach(function(hd){
+      hd.onclick=function(){var g=hd.parentNode; g.classList.toggle('collapsed');
+        try{localStorage.setItem(grpKey(s.path,g.dataset.group), g.classList.contains('collapsed')?'1':'0');}catch(e){}};
+    });
+    async function setv(slot,value){
+      var r=await api('/param',{method:'POST',body:JSON.stringify({path:s.path,slot:Number(slot),value:Number(value)})});
+      if(r&&r.error)toast(r.error,'err');
+    }
+    card.querySelectorAll('[data-kind]').forEach(function(el){
+      var k=el.dataset.kind;
+      if(k==='param'){ el.oninput=function(){var b=card.querySelector('[data-val="'+el.dataset.slot+'"]'); if(b)b.textContent=el.value;}; el.onchange=function(){setv(el.dataset.slot, el.value);}; }
+      else if(k==='number'||k==='choice'){ el.onchange=function(){setv(el.dataset.slot, el.value);}; }
+      else if(k==='toggle'){ el.onchange=function(){setv(el.dataset.slot, el.checked?1:0);}; }
+      else if(k==='button'){ el.onclick=function(){setv(el.dataset.slot, 1); toast('“'+el.textContent+'” triggered','ok');}; }
+    });
   }
 
   // ---------- Customize editor ----------
