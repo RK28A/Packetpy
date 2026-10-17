@@ -1,0 +1,14 @@
+# Blank PacketPy script template
+
+counter = State(0)
+
+@udp(port=12345)
+def packet():
+    counter += 1
+
+    base = 0
+
+    # value = read_field("group.field", base)
+    # write_field("group.field", base, value)
+
+    accept()
